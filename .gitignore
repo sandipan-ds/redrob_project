@@ -1,4 +1,54 @@
+# Data directories
 data/
 .venv/
 docs/data/originals/candidates.jsonl
 data/originals/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# Model artifacts (large binary files)
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+*.onnx
+
+# Compiled files
+*.so
+*.dll
