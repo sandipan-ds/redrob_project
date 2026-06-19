@@ -1,0 +1,74 @@
+# Redrob Hackathon — Submission Metadata
+# Based on: docs/reference_docs/submission_metadata_template.yaml
+
+# ============================================================================
+# Team identity
+# ============================================================================
+team_name: "redrob_project"
+
+primary_contact:
+  name: ""
+  email: ""
+  phone: ""
+
+team_members:
+  - name: ""
+    email: ""
+    role: "ML Engineer"
+
+# ============================================================================
+# Code and reproducibility
+# ============================================================================
+github_repo: ""   # Fill in before submission
+
+sandbox_link: ""  # Fill in before submission (HF Spaces / Streamlit / Colab)
+
+reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./submission.csv"
+
+# ============================================================================
+# Compute environment
+# ============================================================================
+compute:
+  platform: "Windows 11 64-Bit"
+  cpu_cores: 8
+  ram_gb: 24
+  python_version: "3.11"
+  os: "Windows 11 64-Bit"
+  uses_gpu_for_inference: false         # Must be false
+  has_network_during_ranking: false     # Must be false
+  pre_computation_required: true        # Embeddings precomputed offline
+  pre_computation_time_minutes: 0       # TBD after P4
+
+# ============================================================================
+# AI tools declaration
+# ============================================================================
+ai_tools_used:
+  - "Claude"
+  - "GitLab Duo Chat"
+
+ai_usage_summary: |
+  Used Claude / GitLab Duo Chat for architecture discussion, code review, and
+  config design. No candidate data was fed to any hosted LLM. All LLM use is
+  offline/dev-time only; ranking is fully deterministic and CPU-only.
+
+# ============================================================================
+# Approach summary
+# ============================================================================
+methodology_summary: |
+  Rule-based + semantic ranker. Five scoring components (role fit via career
+  description embeddings, JD-relevant skills with endorsement/duration trust,
+  experience band, education tier+CGPA, location) combined with a multiplicative
+  behavioral-signal modifier and hard penalty gates (honeypot, consulting-only,
+  research-only, domain-mismatch). Role-fit is the dominant signal to defeat the
+  keyword-stuffing trap. All LLM use is offline; runtime is vectorized NumPy/
+  sklearn over precomputed embeddings — well within 5 min / 16 GB CPU budget.
+
+# ============================================================================
+# Declarations
+# ============================================================================
+declarations:
+  read_submission_spec: true
+  code_is_original_work: true
+  no_collusion: true
+  honeypot_check_done: false      # Set true after P2 is complete
+  reproduction_tested: false      # Set true after P7 is complete

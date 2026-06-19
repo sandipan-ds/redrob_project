@@ -1,0 +1,308 @@
+# =============================================================================
+# Redrob Challenge — Scoring Configuration
+# Version: 1.0 (P0 scaffold — weights to be calibrated in P5)
+# =============================================================================
+# This file is the HUMAN-READABLE scoring config, NOT the hidden ground truth.
+# All weights and thresholds here are calibrated against the local proxy eval set.
+# Edit this file to tune the ranker; the ranker reads it at startup.
+
+# -----------------------------------------------------------------------------
+# Top-level score weights (must sum to 1.0)
+# final = fit_score * M_behavior * P_penalty
+# fit_score = w_role*s_role + w_skill*s_skill + w_exp*s_exp + w_edu*s_edu + w_loc*s_loc
+# -----------------------------------------------------------------------------
+weights:
+  role_fit:   0.45   # Dominant — semantic career↔JD match (defeats keyword trap)
+  skill:      0.25   # JD-relevant skills, endorsement/duration-weighted
+  experience: 0.15   # Soft band peaking at 6–8 yrs
+  education:  0.10   # Institution tier + CGPA (non-linear)
+  location:   0.05   # Noida/Pune/relocation — soft tie-breaker only
+
+# -----------------------------------------------------------------------------
+# Experience band (soft, not a cliff)
+# Peak score at ideal_min–ideal_max; tapers outside
+# -----------------------------------------------------------------------------
+experience:
+  ideal_min_yrs: 6.0
+  ideal_max_yrs: 8.0
+  acceptable_min_yrs: 4.0   # Below this → steep penalty
+  acceptable_max_yrs: 12.0  # Above this → mild penalty (over-qualified)
+  hard_min_yrs: 2.0          # Below this → near-zero score
+
+# -----------------------------------------------------------------------------
+# Education scoring
+# -----------------------------------------------------------------------------
+education:
+  tier_scores:
+    tier_1: 1.0
+    tier_2: 0.75
+    tier_3: 0.50
+    tier_4: 0.25
+    unknown: 0.30   # Sentinel — neutral, not bad
+
+  cgpa:
+    min_threshold: 7.0    # Below this → score = 1 on 0–7 ramp (non-linear)
+    # Above min_threshold: maps linearly from 1.0 (at 7.0) to recruiter_max (at 10.0)
+    recruiter_max: 10.0   # Recruiter rating for perfect CGPA
+    below_threshold_scale: 0.14  # score = cgpa * below_threshold_scale (0–7 → 0–1)
+
+  # Degree relevance multiplier
+  relevant_fields:
+    - "Computer Science"
+    - "Artificial Intelligence"
+    - "Machine Learning"
+    - "Data Science"
+    - "Information Technology"
+    - "Statistics"
+    - "Mathematics"
+    - "Electronics"
+    - "Computer Engineering"
+  relevant_field_bonus: 1.0
+  irrelevant_field_penalty: 0.7
+
+# -----------------------------------------------------------------------------
+# Skill scoring
+# JD-relevant skills with base weights (recruiter-rated, 0–10 scale → normalized)
+# Endorsement floor: linear 0→endorse_floor, capped at recruiter rating
+# Duration: used as a trust multiplier on proficiency claims
+# -----------------------------------------------------------------------------
+skills:
+  endorse_floor: 30   # Endorsements above this are capped
+
+  # Core positive signals from JD (high weight)
+  jd_core_skills:
+    - name: "Python"
+      weight: 8
+    - name: "Machine Learning"
+      weight: 8
+    - name: "Deep Learning"
+      weight: 7
+    - name: "NLP"
+      weight: 9
+    - name: "Information Retrieval"
+      weight: 9
+    - name: "Embeddings"
+      weight: 9
+    - name: "Vector Database"
+      weight: 8
+    - name: "Retrieval-Augmented Generation"
+      weight: 8
+    - name: "RAG"
+      weight: 8
+    - name: "LangChain"
+      weight: 5   # Low — <12mo LangChain-only is a disqualifier
+    - name: "LLM"
+      weight: 7
+    - name: "Fine-tuning LLMs"
+      weight: 7
+    - name: "Recommendation Systems"
+      weight: 9
+    - name: "Search"
+      weight: 8
+    - name: "Ranking"
+      weight: 9
+    - name: "NDCG"
+      weight: 8
+    - name: "MRR"
+      weight: 7
+    - name: "MAP"
+      weight: 7
+    - name: "Spark"
+      weight: 6
+    - name: "Airflow"
+      weight: 5
+    - name: "SQL"
+      weight: 6
+    - name: "Milvus"
+      weight: 7
+    - name: "Pinecone"
+      weight: 7
+    - name: "Weaviate"
+      weight: 7
+    - name: "Faiss"
+      weight: 7
+    - name: "PyTorch"
+      weight: 7
+    - name: "TensorFlow"
+      weight: 6
+    - name: "Scikit-learn"
+      weight: 6
+    - name: "Hugging Face"
+      weight: 7
+    - name: "Transformers"
+      weight: 7
+    - name: "MLflow"
+      weight: 6
+    - name: "Weights & Biases"
+      weight: 5
+    - name: "BentoML"
+      weight: 5
+    - name: "FastAPI"
+      weight: 5
+    - name: "Docker"
+      weight: 5
+    - name: "Kubernetes"
+      weight: 4
+    - name: "AWS"
+      weight: 5
+    - name: "GCP"
+      weight: 5
+    - name: "Azure"
+      weight: 5
+
+  # Noise / irrelevant skills (do not score positively)
+  noise_skills:
+    - "Photoshop"
+    - "Illustrator"
+    - "Figma"
+    - "PowerPoint"
+    - "Excel"
+    - "SEO"
+    - "Content Writing"
+    - "Marketing"
+    - "Sales"
+    - "Accounting"
+    - "Six Sigma"
+    - "SAP"
+    - "Tailwind"
+    - "Redux"
+    - "Angular"
+    - "React"
+
+# -----------------------------------------------------------------------------
+# Location scoring (soft tie-breaker)
+# -----------------------------------------------------------------------------
+location:
+  preferred_cities:
+    - "Noida"
+    - "Pune"
+  preferred_score: 1.0
+  willing_to_relocate_score: 0.7
+  other_india_score: 0.5
+  outside_india_score: 0.2
+
+# -----------------------------------------------------------------------------
+# Behavior multiplier M_behavior ∈ [~0.5, 1.1]
+# Sentinels (-1, {}) → treated as neutral (0.0 contribution, not penalized)
+# -----------------------------------------------------------------------------
+behavior:
+  # last_active_date recency scoring (days since last active)
+  recency_thresholds:
+    very_active_days: 30    # → score 1.0
+    active_days: 90         # → score 0.8
+    moderate_days: 180      # → score 0.6
+    stale_days: 365         # → score 0.3
+    inactive_score: 0.1     # > stale_days
+
+  # open_to_work_flag
+  open_to_work_bonus: 0.1   # Added to multiplier if true
+
+  # recruiter_response_rate (0–1)
+  response_rate_weight: 0.3
+
+  # interview_completion_rate (0–1)
+  interview_completion_weight: 0.2
+
+  # notice_period_days (lower is better)
+  notice_period:
+    sub_30_bonus: 0.05
+    sub_60_neutral: 0.0
+    above_90_penalty: -0.05
+
+  # Multiplier bounds
+  min_multiplier: 0.50
+  max_multiplier: 1.10
+  neutral_base: 0.85   # Base when all signals are neutral/sentinel
+
+# -----------------------------------------------------------------------------
+# Penalty gates P_penalty (multiplicative kill-switches)
+# Applied BEFORE ranking. These are hard disqualifiers from the JD.
+# -----------------------------------------------------------------------------
+penalties:
+  honeypot:
+    score: 0.01   # Effectively removes from top-100
+
+  # Consulting-only career (no prior product-company experience)
+  consulting_only:
+    score: 0.15
+    consulting_companies:
+      - "TCS"
+      - "Infosys"
+      - "Wipro"
+      - "Accenture"
+      - "Cognizant"
+      - "Capgemini"
+      - "HCL"
+      - "Tech Mahindra"
+      - "Mindtree"
+      - "Mphasis"
+
+  # Pure research only (no production ML code)
+  research_only:
+    score: 0.20
+
+  # No production code in last 18 months
+  no_recent_code:
+    score: 0.25
+    lookback_months: 18
+
+  # CV / speech / robotics without NLP/IR
+  domain_mismatch:
+    score: 0.30
+    mismatch_domains:
+      - "Computer Vision"
+      - "Speech Recognition"
+      - "Robotics"
+      - "TTS"
+      - "Image Classification"
+      - "Object Detection"
+      - "GANs"
+
+  # LangChain-only AI experience < 12 months without pre-LLM ML production
+  langchain_only_junior:
+    score: 0.40
+
+# -----------------------------------------------------------------------------
+# Role affinity matrix
+# Maps current_title → affinity score (0–1) for Senior AI Engineer role
+# Data Scientist ≠ Software Engineer ≠ Business Analyst
+# -----------------------------------------------------------------------------
+role_affinity:
+  "Senior AI Engineer": 1.0
+  "AI Engineer": 0.95
+  "ML Engineer": 0.95
+  "Machine Learning Engineer": 0.95
+  "Research Scientist": 0.70   # Research-only risk; check career history
+  "Data Scientist": 0.80
+  "Applied Scientist": 0.85
+  "NLP Engineer": 0.90
+  "Search Engineer": 0.90
+  "Ranking Engineer": 0.90
+  "Recommendation Systems Engineer": 0.90
+  "Backend Engineer": 0.50    # Check if ML-adjacent in career history
+  "Data Engineer": 0.45
+  "Analytics Engineer": 0.40
+  "Software Engineer": 0.45
+  "Full Stack Engineer": 0.30
+  "Business Analyst": 0.10
+  "Marketing Manager": 0.05
+  "Operations Manager": 0.05
+  "Product Manager": 0.15
+  "default": 0.20             # Fallback for unrecognized titles
+
+# -----------------------------------------------------------------------------
+# Honeypot detection thresholds
+# -----------------------------------------------------------------------------
+honeypot_detection:
+  # Max allowed gap between profile.years_of_experience and sum of career_history.duration_months
+  experience_mismatch_tolerance_months: 12
+
+  # Max skills that can be advanced/expert with duration_months == 0
+  max_zero_duration_expert_skills: 2
+
+  # Education sanity: end_year must be >= start_year
+  education_year_sanity: true
+
+  # Min plausible company founding year (for tenure-before-existence check)
+  # Companies founded after this year are checked against start_date
+  min_company_founding_year: 1900   # Placeholder; specific companies checked in code
