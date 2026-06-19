@@ -1,3 +1,4 @@
 data/
 .venv/
 docs/data/originals/candidates.jsonl
+data/originals/
