@@ -1,0 +1,7 @@
+embedding_dim: 384
+generated_date: '2026-06-20'
+jd_intent_text_chars: 1200
+model: all-MiniLM-L6-v2
+normalized: true
+note: Frozen at dev-time. Do not regenerate between submissions unless JD_INTENT_TEXT
+  is intentionally updated.
