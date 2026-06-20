@@ -1,7 +1,9 @@
 # P1 Criteria Map — JD ↔ Signals ↔ Candidate Schema
 
 **Phase:** P1  
-**Status:** Frozen (dev-time, human-reviewed)  
+**Status:** Frozen (dev-time, human-reviewed) — **revised 2026-06-20** to align with EXECUTION_PLAN §2.5
+(github dropped from `M_behavior`, softened penalty stacking, `summary` committed, OSS proxy moved off
+github).  
 **Sources:**
 - `docs/reference_docs/job_description.docx` — primary fit reference
 - `docs/reference_docs/redrob_signals_doc.docx` — behavioral signal definitions
@@ -38,9 +40,9 @@ These are requirements stated in the JD that **cannot be read directly from a sc
 | "Understands retrieval/ranking evaluation (NDCG, MRR, MAP)" | Not a schema field | Proxy: skill name match + career description text |
 | "Shipped to real users at meaningful scale" | No scale field | Proxy: `career_history[].company_size` ≥ 201-500 + product industry |
 | "Has strong opinions / can defend with reference to systems built" | Subjective | Not scored — Stage 4 interview criterion only |
-| "Writes production code (not just architecture)" | No field | Proxy: `github_activity_score` > 0 + recent `career_history` descriptions |
+| "Writes production code (not just architecture)" | No field | Proxy: recent ML-relevant `career_history` descriptions (NOT `github_activity_score` — dropped, sentinel-heavy; EXECUTION_PLAN §2.5.g) |
 | "3+ year tenure intent" | Future intent, not observable | Not scored — no reliable proxy |
-| "Open-source contributions" | No field | Proxy: `github_activity_score` |
+| "Open-source contributions" | No field | Proxy: mentions of papers / talks / OSS projects in `career_history[].description` (NOT `github_activity_score` — dropped) |
 | "Async-first, writes well" | Subjective | Not scored — noise, not derivable from JSON |
 | "Not a title-chaser (1.5yr job-hopping)" | No explicit field | Proxy: average `duration_months` across `career_history` entries |
 
@@ -52,7 +54,7 @@ These fields exist in the candidate schema but are not mentioned in the JD. Each
 
 | Schema Field | JD Mention | Decision | Rationale |
 |---|---|---|---|
-| `profile.summary` | No | **Keep as proxy** | Useful for role-fit text matching when `career_history` descriptions are thin |
+| `profile.summary` | No | **Use (low-weight)** | Committed (EXECUTION_PLAN §2.5.j): low-weight supplementary input to the role-fit text, behind `career_history[].description`, and the primary source for the thin-desc fallback (§2.5.h). Not the ambiguous "keep as proxy". |
 | `profile.headline` | No | **Keep as proxy** | Quick title signal; used in role affinity lookup |
 | `profile.current_company` | No | **Keep** | Used for consulting-company penalty detection |
 | `profile.current_company_size` | No | **Keep** | Product-company proxy (small/mid-size + non-IT-services = product signal) |
@@ -89,7 +91,7 @@ final = fit_score × M_behavior × P_penalty
 The signals doc does **not** say signals replace fit scoring — they modulate it. A candidate with a perfect fit score but zero availability is still ranked lower. A candidate with moderate fit but strong availability signals is not artificially boosted above a clearly better fit.
 
 **Sentinel handling (from signals doc):**
-- `github_activity_score = -1` → no GitHub linked → treated as neutral (0 contribution to multiplier)
+- `github_activity_score = -1` → no GitHub linked → **N/A: `github_activity_score` is now dropped from `M_behavior` entirely** (low coverage — see §E and EXECUTION_PLAN §2.5.g). When it was still used, `-1` was treated as neutral; it is now simply not a feature.
 - `offer_acceptance_rate = -1` → no prior offers → treated as neutral
 - `skill_assessment_scores = {}` → no assessments taken → treated as neutral
 
@@ -109,7 +111,7 @@ Of the 23 signals, the following are used in scoring. The rest are dropped per S
 | `interview_completion_rate` | ✅ | Weighted contribution to multiplier |
 | `notice_period_days` | ✅ | Small bonus (<30d) / small penalty (>90d) |
 | `avg_response_time_hours` | ✅ | Minor modifier (fast response = slight bonus) |
-| `github_activity_score` | ✅ (weak) | Proxy for active coding; sentinel-safe |
+| `github_activity_score` | ❌ dropped | Low coverage — sentinel `-1` for a large fraction of the pool, so it only discriminates a self-selected subset (EXECUTION_PLAN §2.5.g). Removed from `M_behavior`. |
 | `skill_assessment_scores` | ✅ | Trust modifier on skill proficiency claims |
 | `saved_by_recruiters_30d` | ✅ (weak) | Very minor market-interest signal |
 | `profile_completeness_score` | ✅ (floor only) | Penalizes <40 as low-engagement signal |
@@ -139,7 +141,13 @@ These are explicitly stated in the JD as rejection criteria. They are applied as
 | Consulting-only career (TCS/Infosys/Wipro/Accenture/Cognizant/Capgemini/etc.) with no prior product-company experience | "We've had bad fit experiences" | `× 0.15` |
 | CV / speech / robotics primary expertise, no NLP/IR | "You'd be re-learning fundamentals" | `× 0.30` |
 
-Penalties are **multiplicative and stackable** — a consulting-only candidate who is also research-only gets `0.15 × 0.20 = 0.03`.
+**Combination (EXECUTION_PLAN §2.5.d/e — NOT a raw product):** the worst (smallest) non-honeypot gate
+applies at full strength; the rest are softened geometrically, and all non-honeypot gates are pre-scaled
+by the calibrated `p_scale`:
+`P_penalty = honeypot? × min(non_hp) × Π(other non_hp)^0.5`.
+So a consulting-only candidate who is also *borderline* research-only gets `0.15 × √0.20 ≈ 0.067` — a
+strong demotion, not the over-aggressive `0.03` a raw product would give. Honeypot always applies at full
+`× 0.01`. Per-gate magnitudes are calibrated via `p_scale` (P5), not frozen by assertion.
 
 ---
 

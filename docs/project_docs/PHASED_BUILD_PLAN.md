@@ -32,8 +32,8 @@ do, and the precise exit test that proves the phase is done.**
 ```
 src/
   config_loader.py        # P0 ✅ done
-  data_loader.py          # P0 ✅ done  (+100K smoke test)
-  jd_embedding.py         # P1 ✅ done  (JD-intent vector frozen)
+  data_loader.py          # P0 ✅ done  (+100K smoke test, 20 tests)
+  jd_embedding.py         # P1 ✅ done  (single + multi-query JD-intent set frozen, 24 tests)
   honeypot.py             # P2
   disqualifiers.py        # P2
   features/
@@ -53,13 +53,18 @@ src/
     metrics.py            # P5  (NDCG@10/@50, MAP, P@10, composite)
     proxy_labels.py       # P5  (hand-labeled tiers 0–5)
   rank.py                 # P4/P8 entrypoint: rank.py --candidates ... --out ...
+  eval/test_anti_keyword.py  # P5 (tests/) — top-10 must diverge from keyword baseline
+config/
+  scoring_config.yaml          # P0 ✅ (now incl. role_fit:, penalties.p_scale, skills.skill_synonyms)
+  jd_intent_embedding.npy      # P1 ✅ legacy single vector (back-compat)
+  jd_intent_embeddings.npy     # P1 ✅ multi-query set (4 × 384) — drives s_dense
 artifacts/                # precomputed cache (gitignored except a small sample)
-  career_embeddings.npy   # P4 (100K × 384, offline)
-  candidate_index.parquet # P4 (parsed features per candidate)
+  career_embeddings.npy   # P4 (~300K desc × 384 + offsets, offline)
+  candidate_index.parquet # P4 (parsed features per candidate, incl. per-desc dates)
 models/
   all-MiniLM-L6-v2/       # P7 vendored weights (offline reproduction)
 tests/
-  test_p0.py ✅  test_p1.py ✅  test_p2.py … test_p8.py
+  test_p0.py ✅(20)  test_p1.py ✅(24)  test_p2.py … test_p8.py  test_anti_keyword.py
 Dockerfile                # P7
 ```
 
@@ -91,15 +96,29 @@ Multiplicative gates from `cfg["penalties"]` (stackable — multiply them togeth
 - **honeypot** → `cfg.penalties.honeypot.score` (≈0.01) if `detect_honeypot` true.
 - **consulting_only** → if **every** `career_history[].company` ∈ `consulting_companies` (no product-co
   stint ever) → `consulting_only.score`.
-- **research_only** → no description shows production deployment (proxy: keywords like "production",
-  "deployed", "shipped", "users", "scale" absent across all descriptions) → `research_only.score`.
+- **research_only** → **conjunctive (EXCEUTION_PLAN §2.5.c):** fire **only if all three** hold — (1) no
+  production-lexicon match using the *broad* synonym set ("shipped/deployed/launched/rolled out/served/in
+  production/A‑B/inference service/online" + retrieval/ranking/recsys/search), **and** (2) no
+  product-company tenure ever, **and** (3) explicit research framing ("research scientist"/"academic"/
+  "lab"/"thesis"). Otherwise → mild soft demotion, **not** the ×0.20 gate. Never fire on bare keyword
+  absence.
 - **no_recent_code** → no ML-relevant `career_history` entry within `lookback_months` (use `start/end_date`).
   *(Note: `github_activity_score` is sentinel `-1` for many → low-coverage; lean on descriptions.)*
 - **domain_mismatch** → primary skills/descriptions are CV/speech/robotics (`mismatch_domains`) with **no**
   NLP/IR evidence → `domain_mismatch.score`.
 - **langchain_only_junior** → LangChain present, total exp < 12mo of AI, no pre-2022 ML → `langchain_only_junior.score`.
 
-Return `(penalty_product, reasons)` where `penalty_product = Π(applicable gate scores)`, defaulting to `1.0`.
+**Penalty combination (EXCEUTION_PLAN §2.5.d, §2.5.e):** do **not** multiply all gates raw. Apply the
+**worst (smallest) gate at full strength** and **soften the rest geometrically**, then apply a single
+calibratable global scale to non-honeypot gates:
+
+```
+non_hp = applicable non-honeypot gate scores (each pre-scaled by cfg.penalties.p_scale)
+P_penalty = (cfg.penalties.honeypot.score if honeypot else 1.0) * min(non_hp) * prod(others)**0.5
+```
+
+`p_scale` is one of the calibrated macro knobs (P5). Honeypot always applies at full ×0.01.
+Return `(P_penalty, reasons)`, defaulting to `1.0` when no gate fires.
 
 ### Exit test (`tests/test_p2.py`) — DoD
 - All **sample honeypots** in `data/samples` are flagged `is_honeypot == True`.
@@ -124,12 +143,29 @@ candidate, reading only the candidate dict + `cfg`. No side effects, no I/O.
 - `src/features/role_fit.py`, `skills.py`, `experience.py`, `education.py`, `behavior.py`, `location.py`
 - `tests/test_p3.py`
 
-### `role_fit.py` — `s_role_fit(career_emb, jd_emb) -> float` **(DOMINANT feature)**
-- Input: the candidate's **career-description embedding(s)** and the frozen `jd_emb` (from `jd_embedding.load_jd_embedding()`).
-- **Pooling decision (must be explicit, see SYSTEM_DESIGN §4):** use **max-over-descriptions**, not mean.
-  Rationale: titles/descriptions are scrambled and unrelated entries would dilute a real ML stint; the
-  *best* evidence should drive role-fit. Provide `pool: "max" | "mean"` switch in `cfg` (default `max`).
-- Output: cosine similarity (dot product, both L2-normalized) clamped to [0, 1].
+### `role_fit.py` — `s_role_fit(candidate, embs, jd_intents, cfg) -> float` **(DOMINANT feature)**
+Implements the **blended, multi-query, recency-weighted** role signal (EXCEUTION_PLAN §2.5.a/b/f).
+- **`s_dense` (multi-query, top-K mean):** `jd_intents` is a small set of frozen intent vectors
+  ("production retrieval/ranking", "recsys/search at a product company", "eval frameworks NDCG/MRR/MAP",
+  "embeddings + vector DB in prod"). Per candidate description, take **max cosine over the query set**;
+  then pool across descriptions with **top-K mean** (`cfg.role_fit.pool="topk_mean"`, `K=2`), optionally
+  weighting each description by `duration_months`. (Pure `max` is the fallback when one description.)
+- **`s_lex` (production-evidence lexical, BM25/TF-IDF):** generalized synonym lexicon
+  ("shipped/deployed/launched/rolled out/served/in production/A‑B/inference service/online" + retrieval/
+  ranking/recsys/search terms) matched against the descriptions. Catches engineers whose phrasing differs
+  from our guessed words.
+- **Blend:** `s_role_fit = cfg.role_fit.w_dense·s_dense + cfg.role_fit.w_lex·s_lex` (defaults 0.7/0.3;
+  both are calibrated knobs).
+- **Recency weighting (§2.5.f):** weight each description's contribution by a recency factor from its
+  `start_date`/`end_date` (recent→1.0, old→decayed; half-life in `cfg.role_fit`). A 2024 ML stint > a
+  2018 ML stint followed by marketing.
+- **Thin/empty-description fallback (§2.5.h):** if concatenated description text is below a min length,
+  fall back to the role-affinity **title prior** (`config.role_affinity`) for this component — the single
+  justified use of the otherwise-demoted title lookup. Fallback, never a bonus.
+- Output: clamped to [0, 1].
+
+> **Pre-freeze sanity check (do this in P3, §2.5.a / MINIMAX #9):** embed the few clearly-good sample
+> candidates and assert the `jd_intents` set points at them (high cosine) before locking the vectors.
 
 ### `skills.py` — `s_skill(candidate, cfg) -> float`
 - Match `skills[].name` against `cfg.skills.jd_core_skills` (weighted). Ignore `cfg.skills.noise_skills`.
@@ -149,6 +185,9 @@ candidate, reading only the candidate dict + `cfg`. No side effects, no I/O.
 ### `behavior.py` — `m_behavior(signals, cfg) -> float` **(returns multiplier ∈ [~0.5, 1.1])**
 - Recency from `last_active_date` (`recency_thresholds`).
 - Weighted `recruiter_response_rate`, `interview_completion_rate`; `open_to_work` bonus; notice-period adj.
+- **Drop `github_activity_score` (EXCEUTION_PLAN §2.5.g):** sentinel `-1` for a large fraction → only
+  discriminates a self-selected subset. Lean on the universally-populated signals above. (Update
+  `criteria_map.md` §E to mark it ❌ dropped — low coverage.)
 - **Sentinels (`-1`, `{}`) → contribute nothing; fall back to `neutral_base = 0.85`.** Clamp to `[min, max]`.
 
 ### `location.py` — `s_location(profile, signals, cfg) -> float`
@@ -179,16 +218,20 @@ This is the spine. Split into **offline precompute** (uncapped) and **runtime ra
 
 ### `src/precompute.py` (OFFLINE — `python -m src.precompute`)
 1. Stream candidates via `data_loader.iter_candidates_jsonl`.
-2. For each: build the **role-fit text** = concatenation of `career_history[].description` (NOT titles);
-   keep per-description list for max-pooling.
+2. For each: embed **each `career_history[].description` separately** (NOT titles) and keep them
+   **per-description with `start_date`/`end_date`** so the runtime can do top-K-mean pooling AND
+   recency-weighting (§2.5.b/f). Also freeze the small **multi-query JD-intent vector set** (§2.5.a).
 3. Embed with `jd_embedding.embed_texts` (MiniLM, batched, `show_progress_bar`).
-4. Write `artifacts/career_embeddings.npy` (shape `(N, 384)` after pooling, or per-desc + offsets) and
-   `artifacts/candidate_index.parquet` (parsed scalar features: yoe, tier, cgpa, signals, company list…).
-5. Record `artifacts/precompute_meta.yaml` (model, dim, count, date, pooling mode).
+4. Write `artifacts/career_embeddings.npy` (per-description vectors + a candidate→rows offset index) and
+   `artifacts/candidate_index.parquet` (parsed scalar features: yoe, tier, cgpa, signals, company list,
+   per-description dates, description lengths for the thin-desc fallback…).
+5. Record `artifacts/precompute_meta.yaml` (model, dim, count, date, pooling mode, intent-query list).
 
-### `src/retrieve.py` — `shortlist(jd_emb, career_emb, k) -> np.ndarray[idx]`
-- Vectorized `career_emb @ jd_emb` → top-`k` (k ≈ 1–2K from `cfg`). This is the hybrid-retrieve stage
-  (dense; BM25 optional later). Returns candidate indices to rerank.
+### `src/retrieve.py` — `shortlist(jd_intents, career_emb, feats, k, cfg) -> np.ndarray[idx]`
+- **Two-band retrieval (MINIMAX #7):** (1) top-`k` by multi-query dense cosine (k ≈ 1–2K from `cfg`);
+  (2) a small **second-chance band** of candidates with high skill/experience scores but only moderate
+  cosine, so a real fit with jargon-heavy phrasing isn't dropped before rerank. Union the two bands.
+- Vectorized `career_emb @ jd_intents` (max over queries). Returns candidate indices to rerank.
 
 ### `src/scoring.py` — `final_score(candidate, feats, cfg) -> tuple[float, dict]`
 - `fit = w_role·s_role + w_skill·s_skill + w_exp·s_exp + w_edu·s_edu + w_loc·s_loc` (weights from cfg).
@@ -197,11 +240,12 @@ This is the spine. Split into **offline precompute** (uncapped) and **runtime ra
 
 ### `src/rank.py` (RUNTIME — `python rank.py --candidates ./candidates.jsonl --out ./submission.csv`)
 1. **Assert no network** (monkeypatch socket or guard imports — see P7).
-2. Load cached `career_embeddings.npy` + `candidate_index.parquet` + `jd_intent_embedding.npy`.
-   **Never embed at runtime.**
+2. Load cached `career_embeddings.npy` + `candidate_index.parquet` + the **multi-query**
+   `jd_intent_embeddings.npy` (4 × 384). **Never embed at runtime.**
 3. `retrieve.shortlist` → candidate subset.
 4. For each shortlisted candidate: run P3 features + P2 penalty → `scoring.final_score`.
-5. Sort by `final` desc, **tie-break `candidate_id` asc**; take top 100.
+5. Sort by `final` desc; **bottom-of-100 fallback (EXCEUTION_PLAN §2.5.i):** among near-equal weak
+   candidates, order by stable secondary features (exp band) then **`candidate_id` asc**. Take top 100.
 6. Write CSV: header `candidate_id,rank,score,reasoning`; ranks 1–100; **score non-increasing**; UTF-8.
 
 ### Exit test (`tests/test_p4.py`) — DoD
@@ -227,7 +271,7 @@ decide what to submit and to lightly tune a **few** knobs (not all of them — s
 - `src/eval/metrics.py`, `src/eval/proxy_labels.py`
 - `data/labels/proxy_tiers.json` (hand-labeled relevance tiers 0–5 for ~50 sample candidates)
 - `scripts/calibrate.py`
-- `tests/test_p5.py`
+- `tests/test_p5.py`, `tests/test_anti_keyword.py`
 
 ### `metrics.py`
 - Implement **NDCG@10, NDCG@50, MAP, P@10** and the exact composite
@@ -236,19 +280,31 @@ decide what to submit and to lightly tune a **few** knobs (not all of them — s
 ### `proxy_labels.py` + `data/labels/proxy_tiers.json`
 - Hand-label ~50 sample candidates + a few synthesized honeypots into tiers **0–5** (0 = honeypot/no-fit,
   5 = ideal per JD "how to read between the lines"). Document the labeling rubric inline.
+- **Independence guard (GLM #3 / MINIMAX):** the same person sets weights *and* labels, so add at least one
+  of: (a) a held-out ~20 labeled by a second reviewer with inter-rater check, or (b) **synthesized
+  adversarial near-miss decoys** (profiles that look like fits by the formula but should rank low) and
+  assert they rank below genuine fits. This gives the proxy set independence from the weight-setter.
 
 ### `scripts/calibrate.py`
-- Grid/coordinate search over **≤4 macro knobs only**: top-level weight split, behavior band width,
-  global penalty floor, retrieval `k`. **Freeze** per-skill weights & role-affinity decimals (overfit risk).
+- Coordinate search over the **macro knobs** (EXCEUTION_PLAN §2.5.e, §5.1): top-level weight split,
+  behavior band width, **`p_scale` global penalty scale**, retrieval `k`, and the role-fit blend
+  `w_dense`/`w_lex`. **Freeze** per-skill weights & role-affinity decimals (overfit risk). Keep the knob
+  count honest — `p_scale` replaces the 6 previously-hidden gate constants.
 - Output the best config + the achieved composite; never silently overwrite `scoring_config.yaml`
   (write a candidate file for human review).
+
+### `tests/test_anti_keyword.py` (EXCEUTION_PLAN §5.3)
+- Compute the **pure AI-keyword-count ordering** on the sample pool (the trap baseline that
+  `sample_submission.csv` embodies) and assert our top-10 **diverges** from it (low overlap /
+  rank-correlation near zero). Fails loudly if the ranker ever drifts toward keyword-counting.
 
 ### Exit test (`tests/test_p5.py`) — DoD
 - Metric implementations match hand-computed expected values on a tiny fixture (e.g., a known ranking).
 - The composite of a deliberately-good ordering **> ** a shuffled ordering on the proxy set.
-- Calibration runs and reports a composite; tuning only the 4 macro knobs.
+- Adversarial decoys rank below genuine fits; anti-keyword test passes.
+- Calibration runs and reports a composite; tuning only the documented macro knobs.
 ```
-pytest tests/test_p5.py -v
+pytest tests/test_p5.py tests/test_anti_keyword.py -v
 python scripts/calibrate.py
 ```
 **Commit prefix:** `P5: eval harness + calibration`
@@ -266,6 +322,8 @@ Stage-4 checks.
 
 ### `src/reasoning.py` — `generate_reasoning(candidate, breakdown, rank, cfg) -> str`
 - Fill **only profile-present values** (yoe, named skills, signal values) into rotating sentence templates.
+- **Build an entity whitelist** per candidate first (skill names, employers, numeric years/values, signal
+  numbers); the generator may only emit content tokens from that whitelist (EXCEUTION_PLAN §6).
 - **Describe the work from `career_history[].description`, not the title** (titles lie — §3.1.a).
 - Tone must match rank band (top → strengths + maybe one concern; bottom → honest "adjacent only").
 - Acknowledge real gaps (honest concerns check). **Never** emit a skill/employer not in the profile.
@@ -275,8 +333,9 @@ Stage-4 checks.
 1. **Specific facts:** output contains ≥1 numeric/skill value from the candidate.
 2. **JD connection:** references a JD concept (retrieval/ranking/recsys/production/etc.).
 3. **Honest concerns:** a candidate with a known gap → reasoning mentions it.
-4. **No hallucination:** every named skill/employer in the output exists in the candidate JSON (assert by
-   substring/whitelist check across 50 samples).
+4. **No hallucination (whitelist, not substring — §6/MINIMAX #10):** pre-extract the allowed-entity
+   whitelist per candidate; assert **every content-bearing token emitted is in the whitelist** (catches
+   hallucinated years/company variants a substring check misses). Run across 50 samples.
 5. **Variation:** 10 generated reasonings are not all identical / not name-templated.
 6. **Rank consistency:** rank-1 tone positive, rank-100 tone cautious (lexical heuristic).
 ```

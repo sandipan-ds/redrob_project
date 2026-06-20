@@ -239,6 +239,142 @@ Again, **no document specifies 0.01 / 0.15 / 0.20 / …** — these are our cali
 langchain) is the part that is *principled*; the precise decimals are tuned so that no gated candidate
 can climb back into the top-100 while a borderline-but-legitimate candidate isn't annihilated.
 
+### 2.5 Post-review refinements (folded in from GLM/MIMO/MINIMAX critiques)
+
+Three independent reviews converged on the same handful of weak points. These are **not**
+re-architecture — the spine (offline precompute + NumPy rerank, distrust titles, multiplicative gates,
+sentinels-neutral, few-knob calibration) is unchanged. They are sharpenings, recorded here and wired into
+the build in `PHASED_BUILD_PLAN.md`.
+
+#### 2.5.a 🔴 A second, orthogonal role signal (the unanimous concern)
+
+**Problem:** ~45% of fit, and effectively all of NDCG@10, rides on **one** signal — cosine of career
+descriptions to a **single** 1,200-char JD-intent vector via `all-MiniLM-L6-v2` (a short-text similarity
+model, not a fine-grained "did-they-ship-it" discriminator). Genuine fits will cluster at near-identical
+cosine and then be ordered by `candidate_id` — precisely where half the score is won or lost.
+
+**Fix (commit to this, do not leave it "optional"):** at the **rerank** stage, combine the dense cosine
+with a second, orthogonal role signal and take a calibrated blend:
+
+```
+s_role_fit = w_dense · s_dense  +  w_lex · s_lex
+```
+
+- **`s_dense` — multi-query dense, max-pooled.** Replace the single JD-intent vector with a small set of
+  **frozen intent vectors** (e.g. "production retrieval/ranking", "recsys/search at a product company",
+  "eval frameworks: NDCG/MRR/MAP", "embeddings + vector DB in prod"). Score = **max** cosine over the
+  query set, then **max over the candidate's descriptions** (see §2.5.b for the pooling refinement).
+- **`s_lex` — production-evidence lexical match (BM25/TF-IDF).** A small, *generalized* lexicon of
+  production-shipping verbs **and synonyms** ("shipped, deployed, launched, rolled out, served, in
+  production, A/B, inference service, online") **+** retrieval/ranking/recsys/search terms, matched
+  against the descriptions. This catches real engineers whose phrasing differs from our guessed words —
+  the failure mode §2.5.c warns about.
+- `w_dense` / `w_lex` are part of the calibrated macro-knob budget (§5.1), default ~0.7 / 0.3.
+
+**Pre-freeze sanity check (from MINIMAX #9):** before locking the JD-intent vectors, embed the few
+clearly-good sample candidates and confirm the intent vectors actually point at them (high cosine). If the
+hand-distilled intent diverges from what a real fit looks like, we are scoring against the wrong centroid.
+
+#### 2.5.b 🟠 Pooling refinement: top-K mean, not pure max
+
+Pure max-pool has a known failure: a *single* description that superficially name-drops "production ML"
+can vault a candidate whose other entries are unrelated. **Refinement:** use **top-K mean** (K≈2) over a
+candidate's per-description cosines, optionally **weighting each description by `duration_months`** so a
+6-month consulting stint cannot out-vote a 4-year ML stint. `pool ∈ {max, topk_mean}` and `K` live in
+`cfg.role_fit`; default `topk_mean`, K=2. (Max remains a valid fallback when a candidate has one
+description.)
+
+#### 2.5.c 🟠 `research_only` must be conjunctive, not a keyword-*absence* rule
+
+A gate that fires on "none of {production, deployed, shipped, users, scale} appear" is **the keyword trap
+inverted** — it punishes a real production engineer who happened to write "rolled out / served / A/B
+tested" instead of our exact words. **Fix:** `research_only` fires **only if all three** hold:
+(1) no production-lexicon match (using the *broad* synonym set from §2.5.a), **and**
+(2) no product-company tenure ever, **and**
+(3) explicit research framing in descriptions/titles ("research scientist", "academic", "lab", "PhD
+thesis work"). Otherwise it degrades to a mild soft feature, not a ×0.20 gate. This directly honors the
+plan's own "avoid false-kills" rule (§4.1).
+
+#### 2.5.d 🟠 Penalty stacking: primary gate + softened secondaries
+
+`consulting_only × research_only = 0.03` is a death sentence even when one label is borderline. **Fix:**
+apply the **worst (smallest) gate at full strength**, and **soften the rest**:
+
+```
+P_penalty = min(gates) · Π(other gates)^0.5      # geometric softening of secondary gates
+```
+
+So a candidate who is squarely consulting-only (×0.15) but only *borderline* research-only doesn't get
+crushed to 0.03; the secondary gate is dampened. Honeypot remains an exception — it always applies at
+full ×0.01.
+
+#### 2.5.e 🟠 Gate magnitudes are calibratable, not frozen by assertion
+
+The six gate scores (0.01 … 0.40) are hand-set numbers that the plan previously *excluded* from its
+"≤4 calibrated knobs" budget — i.e. ~6 hidden knobs. **Fix:** introduce a **single global penalty scale**
+`p_scale ∈ cfg.penalties` that multiplies all *non-honeypot* gate severities, and make `p_scale` **one of
+the calibrated macro knobs** (§5.1). This preserves the principled *ordering* while letting the proxy data
+set overall severity, and it keeps the honest knob-count accurate.
+
+#### 2.5.f 🟠 Career-recency weighting on role-fit (distinct from the 18-mo gate)
+
+The JD's "no production code in last 18 months" is a *career-recency* concept, currently only a binary
+gate. **Even when not gated**, a candidate's role-fit should be **recency-weighted**: a 2024 ML stint
+should outweigh a 2018 ML stint followed by a marketing career. Weight each description's role-fit
+contribution by a recency factor derived from its `start_date`/`end_date` (recent → 1.0, old → decayed).
+Decay half-life is a `cfg.role_fit` parameter.
+
+**Composition rule (pinned — duration × recency are ONE weight, not two):** to avoid calibrating two
+entangled per-description reweightings (the "interdependent knobs" failure mode), each description *d* gets
+a **single** weight `w_d = duration_norm(d) × recency_decay(d)`, where
+`duration_norm = min(duration_months/24, 1.0)` and
+`recency_decay = 0.5 ** (months_since_end / recency_half_life_months)`. The top-K mean (§2.5.b) is the
+`w_d`-weighted mean of the K highest per-description cosines. See `SYSTEM_DESIGN.md` §4.1.1.
+
+#### 2.5.g 🟢 Drop `github_activity_score` from `M_behavior`
+
+It is sentinel `-1` for a large fraction of the pool, so it only discriminates a **self-selected** subset.
+**Fix:** remove it from the behavior multiplier and lean on the **universally-populated** signals
+(`last_active_date`, `recruiter_response_rate`, `interview_completion_rate`). (`criteria_map.md` §E should
+move it from "✅ (weak)" to "❌ dropped — low coverage".)
+
+#### 2.5.h 🟢 Thin/empty-description fallback (the only place `title` is allowed back)
+
+If a candidate has **no usable description text**, `s_dense`/`s_lex` are ~0 and a legitimate "AI Engineer"
+would score zero on the dominant feature. **Fix:** when (and only when) the concatenated description text
+is empty/below a min length, fall back to the **role-affinity title prior** (§3.1) for the role component.
+This is the single justified use of the otherwise-demoted title lookup — it is a *fallback*, never a
+*bonus*, and it resolves the apparent "drop the role-affinity table entirely" suggestion: we keep it
+precisely for this case.
+
+#### 2.5.i 🟢 Bottom-of-top-100 / "fewer than 100 real fits"
+
+The pool may contain far fewer than 100 genuine fits. The bottom of our list will necessarily be
+"best of the weak." **Design stance:** (1) the score is honestly low there and reasoning says so
+("adjacent skills only — filler below the likely cutoff", matching the spec's own rank-100 example);
+(2) ordering among weak candidates falls back to the *stable* secondary features (exp band, then
+`candidate_id` asc) so it stays deterministic and validator-clean; (3) we do **not** fabricate confidence
+we don't have — NDCG@50/MAP reward getting the *relative* order right even among mediocre candidates.
+
+#### 2.5.j 🟢 Three P2-implementation decisions carried from GLM-v2 (§A2/A3/A5)
+
+To keep these from being forgotten, they are recorded here and implemented in P2/P3 (not now):
+
+- **`consulting_only` — generalize beyond the 10-name list.** A hard-coded company list misses hidden-pool
+  variants (Genpact, LTIMindtree, IBM India…). The detector should *also* use
+  `current_industry == "IT Services"` + `company_size` bands as a generalized consulting proxy, and the
+  "prior product-company experience" exemption should be a real check (`industry != "IT Services"` stint
+  ever). Keep the name list as a high-precision booster, not the sole signal.
+- **`langchain_only_junior` — reconsider as a gate.** It is detection-hard and can false-fire on a senior
+  who recently *added* LangChain. A LangChain-only junior's descriptions won't embed near "built
+  retrieval/ranking in production," so role-fit + the exp band already demote them. **Decision:** demote it
+  from a hard ×0.40 gate to a mild soft feature unless the conjunctive conditions (junior exp **and**
+  no pre-2022 ML **and** LangChain is the only AI signal) all hold.
+- **`profile.summary` — commit, don't leave "as proxy".** Use it as a **low-weight supplementary input to
+  the role-fit text** (behind `career_history[].description`), and specifically as part of the thin-desc
+  fallback (§2.5.h) when descriptions are empty. `criteria_map.md` §C is updated to reflect this commitment
+  rather than the ambiguous "keep as proxy".
+
 ### 2.1 Why not LLM-per-candidate?
 The spec forbids it: network off + 5 min for 100K candidates. **All LLM use is offline/dev-time**
 (JD-criteria extraction, reasoning-template design, code review). Runtime is a lightweight feature
@@ -440,11 +576,13 @@ live in `config/scoring_config.yaml`. Fitting all of them on 50 points = guarant
 **indefensible at the Stage-5 interview**. So we deliberately **freeze most parameters by principle and
 calibrate only a handful of macro knobs:**
 
-- **Calibrate (≤4 knobs):** the top-level weight split (`role/skill/exp/edu/loc`), the behavior band
-  width (`min/max/neutral_base`), the global penalty floor, and the retrieval cutoff.
-- **Freeze by principle (do not fit):** the per-skill weights (collapse synonyms — e.g. `RAG` ≡
-  `Retrieval-Augmented Generation` — and shrink to a small JD-core set), the role-affinity decimals
-  (already demoted in §3.1.a), and the gate ordering.
+- **Calibrate (the macro knobs):** the top-level weight split (`role/skill/exp/edu/loc` — including
+  `w_edu`, which the JD's anti-credentialist stance suggests may want to drop toward ~0.05), the behavior
+  band width (`min/max/neutral_base`), the **global penalty scale `p_scale`** (§2.5.e, replaces the 6
+  hidden gate constants), the retrieval cutoff `k`, and the role-fit blend `w_dense`/`w_lex` (§2.5.a).
+- **Freeze by principle (do not fit):** the per-skill weights — now **synonym-collapsed via
+  `config.skills.skill_synonyms`** so e.g. `RAG` ≡ `Retrieval-Augmented Generation` scores once, not twice
+  (§GLM-v2 #A4) — the role-affinity decimals (already demoted in §3.1.a), and the gate ordering.
 - **Trust platform-verified signals over self-reported ones:** `skill_assessment_scores` (e.g.
   `CAND_0000001`: NLP 38.8) is harder to game than `proficiency`/`endorsements` (the same profile claims
   *advanced, 52 endorsements* in **Speech Recognition** — a domain the JD penalizes). Endorsements/
@@ -459,6 +597,15 @@ few genuine fits, **NDCG@10 (half the score) is decided by a handful of profiles
 confirm real production retrieval/ranking/recsys evidence, confirm no honeypot/decoy slipped in, and
 confirm the reasoning is honest and rank-consistent. This human gate is cheap (≤20 profiles) and directly
 protects 50% of the score — the pipeline is not trusted blindly for the top band.
+
+### 5.3 ⚠️ Anti-keyword regression test (encode the JD's central warning as a test)
+
+`docs/reference_docs/sample_submission.csv` is the **canonical bad output** — it ranks HR Managers,
+Content Writers, Mechanical Engineers, Accountants and Marketing Managers in the top rows, carried purely
+by AI-keyword count. It is the exact trap the JD describes. We turn that into a guard: compute the
+**pure AI-keyword-count ordering** on the sample pool and **assert our top-10 diverges from it** (e.g.
+rank-correlation near zero / low overlap). If our ranker ever starts resembling the keyword baseline, this
+test fails loudly. Add as `tests/test_anti_keyword.py` (wired in P5).
 
 ---
 
@@ -478,6 +625,11 @@ candidate JSON (years, titles, named skills, signal values). Because `title` is 
 reasoning should describe the **work from `career_history[].description`**, not the job title, to avoid
 contradicting the candidate's own record. Variation is achieved by sentence-template rotation keyed on
 rank band + dominant feature, so the 10 sampled rows at Stage-4 read as genuinely different.
+
+**Hallucination test = entity whitelist, not substring (from MINIMAX #10).** A substring check can miss a
+hallucinated *year* or a company-name variant. Instead, **pre-extract a whitelist** of allowed entities
+per candidate (skill names, employers, numeric years/values, signal numbers) and assert **every
+content-bearing token the generator emits is in that whitelist**. This is a hard P6 exit test.
 
 ---
 
@@ -512,9 +664,19 @@ ranking step that writes the CSV must fit):**
 **Memory sizing (must stay ≪ 16 GB):**
 
 - Candidate-level pooled vectors: `100,000 × 384 × 4 B ≈ 154 MB`.
-- Per-description vectors (if kept un-pooled): `~300,171 × 384 × 4 B ≈ 461 MB`.
+- Per-description vectors (kept un-pooled for top-K-mean + recency at runtime): `~300,171 × 384 × 4 B ≈ 461 MB`.
 - Raw JSONL is 487 MB but is **streamed/parsed offline**; runtime loads only the cached arrays + a
   compact feature table. Comfortably under 16 GB.
+
+**Disk sizing (spec §3 hard limit: ≤ 5 GB intermediate state):**
+
+| Artifact | Size |
+|---|---|
+| Vendored `all-MiniLM-L6-v2` weights | ~90 MB |
+| `career_embeddings.npy` (per-description, un-pooled) | ~461 MB |
+| `candidate_index.parquet` (scalar features + dates) | ~50–150 MB |
+| Raw `candidates.jsonl` (input, not "intermediate") | 487 MB |
+| **Total intermediate state** | **≈ 0.6–0.7 GB ≪ 5 GB** ✅ |
 
 **Hard fail-tests (CI, run before every submission):**
 

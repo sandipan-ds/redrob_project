@@ -44,7 +44,7 @@ flowchart TD
     JDT -->|all-MiniLM-L6-v2| JDE["jd_intent_embedding.npy (384-d, L2-norm)  [P1 ✅]"]
     RAW["candidates.jsonl (100K, 487MB)"] --> PARSE["parse + honeypot scan"]
     PARSE --> DESC["career_history[].description text"]
-    DESC -->|MiniLM batch encode| CEMB["career_embeddings.npy (100K × 384)"]
+    DESC -->|MiniLM batch encode| CEMB["career_embeddings.npy (~300K desc × 384 + offsets)"]
     PARSE --> FEAT["candidate_index.parquet (scalar features)"]
   end
 
@@ -79,25 +79,47 @@ loc 0.05` (sum = 1.0).
 
 | Component | Source field(s) | How it's computed | Notes |
 |---|---|---|---|
-| **`s_role_fit`** (dominant) | `career_history[].description` | Cosine to frozen JD-intent embedding | **Max-pool** over a candidate's descriptions (not mean) so one real ML stint isn't diluted by unrelated entries — see §4.1. Titles ignored. |
-| `s_skill` | `skills[]`, `skill_assessment_scores` | JD-core skills weighted; endorsement curve capped; duration as trust; **prefer platform-verified assessment scores** | Noise skills excluded; endorsements are gameable so subordinate to descriptions. |
+| **`s_role_fit`** (dominant) | `career_history[].description` | **Blended:** `w_dense·s_dense + w_lex·s_lex`, top-K-mean pooled, recency-weighted | `s_dense` = max cosine over a **multi-query** JD-intent set; `s_lex` = production-evidence lexical match. See §4.1. Titles ignored (except thin-desc fallback). |
+| `s_skill` | `skills[]`, `skill_assessment_scores` | JD-core skills weighted (synonym-collapsed); endorsement curve capped; duration as trust; **prefer platform-verified assessment scores** | Noise skills excluded; endorsements are gameable so subordinate to descriptions. |
 | `s_exp_band` | `profile.years_of_experience` | Soft band peaking 6–8 yrs | "Range, not a requirement" — taper, not a cliff. |
-| `s_education` | `education[]` | Tier score + non-linear CGPA ramp + field relevance | `unknown` tier = neutral 0.30. |
+| `s_education` | `education[]` | Tier score + non-linear CGPA ramp + field relevance | `unknown` tier = neutral 0.30. `w_edu` is a calibrated knob (anti-credentialist JD). |
 | `s_location` | `profile.location`, `willing_to_relocate` | **Substring** match (`"City, Region"`); Noida/Pune preferred, Hyderabad/Mumbai/Delhi welcome | Soft tie-breaker only (w=0.05). |
-| **`M_behavior`** | `last_active_date`, `recruiter_response_rate`, `interview_completion_rate`, `open_to_work`, notice | Multiplier in **[~0.5, 1.1]**, `neutral_base 0.85` | Asymmetric: ≤+10% reward, up to −50% demotion. Sentinels → neutral. |
-| **`P_penalty`** | whole profile | Π of gate scores (honeypot ≈0.01 … langchain-junior 0.40) | Multiplicative kill-switches; stackable. |
+| **`M_behavior`** | `last_active_date`, `recruiter_response_rate`, `interview_completion_rate`, `open_to_work`, notice | Multiplier in **[~0.5, 1.1]**, `neutral_base 0.85` | Asymmetric: ≤+10% reward, up to −50% demotion. Sentinels → neutral. **`github_activity_score` dropped** (sentinel-heavy). |
+| **`P_penalty`** | whole profile | `honeypot? × min(non_hp) × Π(others)^0.5` (gates pre-scaled by `p_scale`) | Multiplicative kill-switches; **worst gate full + softened secondaries** (not raw product). |
 
-### 4.1 Why max-pool for role-fit (key decision)
+### 4.1 Pooling & blending for role-fit (key decision — EXECUTION_PLAN §2.5.a/b/f)
 A candidate has several `career_history` descriptions, and the data scrambles them across unrelated roles.
-If we **averaged** their embeddings, a single strong ML description would be diluted by marketing/ops noise
-and a true fit could be buried. **Max-over-descriptions** asks the right question — *"is there **any**
-evidence this person built retrieval/ranking/recsys in production?"* — which matches the JD's "has shipped
-at least one end-to-end ranking/search/recsys system." (Configurable via `cfg.role_fit.pool`, default `max`.)
+**Averaging** would dilute a single strong ML description under marketing/ops noise; **pure max** would let
+one superficial "production ML" mention vault an otherwise-unrelated profile. So we use **top-K mean**
+(K≈2) over the per-description cosines — *"is there strong, repeated evidence they built retrieval/ranking/
+recsys in production?"* — with two further refinements:
+
+- **Multi-query dense (`s_dense`):** max cosine over a small **set** of frozen JD-intent vectors
+  (production retrieval/ranking; recsys/search at a product company; eval frameworks NDCG/MRR/MAP;
+  embeddings + vector DB in prod) — sharper than one centroid for the top band (50% of the score).
+- **Lexical (`s_lex`):** a production-evidence BM25/lexical match with a *broad* synonym set, so a real
+  engineer who wrote "rolled out / served / A-B tested" isn't missed by our guessed vocabulary.
+- **Per-description weighting:** each description's contribution is weighted by a **single combined factor
+  `weight = duration_norm × recency_decay`** (see §4.1.1), applied *before* the top-K mean.
+- **Thin-desc fallback:** if a candidate has no usable description text, fall back to the role-affinity
+  title prior for this component only (the single justified use of the otherwise-demoted title).
+
+Pooling, blend weights (`w_dense`/`w_lex`), `K`, and the recency half-life all live in `cfg.role_fit`.
+
+#### 4.1.1 How duration and recency compose (pinned, per GLM-v2 #14)
+Both reweight per-description contributions, so we define a **single composition rule** to avoid
+calibrating two entangled effects: for each description *d*,
+`w_d = duration_norm(d) × recency_decay(d)`, where `duration_norm = min(duration_months / 24, 1.0)` and
+`recency_decay = 0.5 ** (months_since_end / recency_half_life_months)`. The top-K mean is the
+`w_d`-weighted mean of the K highest per-description cosines. There is exactly **one** per-description
+weight, not two stacked reweightings.
 
 ### 4.2 Why multiplicative gates, not additive penalties
 A keyword-stuffed honeypot could accumulate enough additive skill points to survive a subtraction. A
 multiplier of ×0.01 **cannot be out-earned** — it guarantees disqualifiers stay out of the top-100,
-which directly protects the honeypot-rate Stage-3 filter and NDCG@10.
+which directly protects the honeypot-rate Stage-3 filter and NDCG@10. Gates **combine** as
+`honeypot? × min(non-honeypot gates) × Π(other non-honeypot gates)^0.5` so a borderline second label
+can't crush a candidate (EXECUTION_PLAN §2.5.d).
 
 ## 5. Honeypot & disqualifier strategy
 
@@ -144,13 +166,15 @@ half of the score that lives in NDCG@10.
 | Dataset | 487 MB JSONL |
 | Career descriptions | ~300K, avg ~396 chars |
 | Embedding | `all-MiniLM-L6-v2`, 384-d, L2-normalized |
-| Cached candidate vectors | 100K × 384 × 4B ≈ **154 MB** (max-pooled) |
+| Cached candidate vectors | per-description vectors (~300K × 384 × 4B ≈ **461 MB**) + candidate→rows offset index; pooled at runtime |
+| Intermediate disk (spec ≤ 5 GB) | vendored model ~90 MB + vectors ~461 MB + parquet ~50–150 MB ≈ **0.6–0.7 GB** ✅ |
 | **Offline** precompute | uncapped (minutes → tens of min) |
 | **Runtime** ranking step | **must be < 5 min, CPU, no network, < 16 GB** |
 
-Runtime work is dominated by one `(N×384)·(384,)` dot product + a partial sort — milliseconds-to-seconds
-class on CPU. The hard CI fail-tests are: full-100K runtime < 5 min, no-network assertion, and
-"never embed at runtime" (the model is not loaded by `rank.py`).
+Runtime work is dominated by a `(~300K × 384) · (384 × 4)` matmul against the multi-query intent set
+(max over the 4 queries), then top-K-mean pooling per candidate and a partial sort — seconds-class on
+CPU. The hard CI fail-tests are: full-100K runtime < 5 min, no-network assertion, and "never embed at
+runtime" (the model is not loaded by `rank.py`).
 
 ## 9. Reproducibility & offline guarantees
 
@@ -173,9 +197,9 @@ class on CPU. The hard CI fail-tests are: full-100K runtime < 5 min, no-network 
 
 | Concern | Module | Phase |
 |---|---|---|
-| Config load + validation | `src/config_loader.py` | P0 ✅ |
-| Candidate I/O (streaming) | `src/data_loader.py` | P0 ✅ |
-| JD-intent embedding | `src/jd_embedding.py` | P1 ✅ |
+| Config load + validation | `src/config_loader.py` | P0 ✅ (20 tests) |
+| Candidate I/O (streaming, 100K) | `src/data_loader.py` | P0 ✅ (20 tests) |
+| JD-intent embedding (single + multi-query set) | `src/jd_embedding.py` | P1 ✅ (24 tests) |
 | Honeypot detection | `src/honeypot.py` | P2 |
 | Disqualifier gates | `src/disqualifiers.py` | P2 |
 | Feature extractors | `src/features/*.py` | P3 |
@@ -192,7 +216,7 @@ class on CPU. The hard CI fail-tests are: full-100K runtime < 5 min, no-network 
 | Risk | Mitigation in the design |
 |---|---|
 | Rewards keyword stuffing | Role-fit over descriptions dominates; skills subordinate; honeypot/keyword regression tests |
-| Trusting scrambled titles | Titles distrusted; role label derived from descriptions; max-pool |
+| Trusting scrambled titles | Titles distrusted; role label derived from descriptions; top-K-mean + recency-weighted blend |
 | Honeypots in top-100 | Emergent avoidance + structural detector + ×0.01 gate |
 | Misses 5-min budget | Offline embedding + NumPy-only runtime + measured budget + CI latency gate |
 | Overfit to 50 labels | Calibrate ≤4 macro knobs; freeze the rest by principle |
