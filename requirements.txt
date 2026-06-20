@@ -1,5 +1,12 @@
 # Redrob Candidate Ranker — pinned dependencies
-# CPU-only, no network during ranking, Python 3.11+
+# CPU-only, no network during ranking.
+#
+# REQUIRES Python 3.11.x (verified on 3.11.9). These pins have prebuilt wheels
+# for 3.11 and install in seconds. They DO NOT build on Python 3.12+/3.14
+# (no wheels -> source build -> scikit-learn/numpy build failure). The Stage-3
+# Docker image MUST use python:3.11-slim so reproduction matches this env.
+#   py -3.11 -m venv .venv
+#   .\.venv\Scripts\python -m pip install -r requirements.txt
 
 # Core data & ML
 numpy==1.26.4

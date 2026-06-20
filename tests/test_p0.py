@@ -11,16 +11,32 @@ from pathlib import Path
 
 import pytest
 
+import re
+import time
+import types
+
 from src.config_loader import load_config
 from src.data_loader import (
+    CANDIDATE_ID_RE,
     SchemaValidationError,
     _validate_candidate,
+    iter_candidates_jsonl,
     load_candidates,
     load_candidates_json,
 )
 
 SAMPLE_JSON = Path("data/samples/sample_candidates.json")
 CONFIG_PATH = Path("config/scoring_config.yaml")
+
+# Production 100K dataset. Large (~487 MB) and not always present in CI / fresh
+# clones, so tests that depend on it are skipped (not failed) when it is absent.
+ORIGINALS_JSONL = Path("data/originals/candidates.jsonl")
+EXPECTED_MIN_CANDIDATES = 90_000   # spec says ~100K; allow headroom for skipped/bad lines
+# Generous wall-clock ceiling for a pure streaming parse+validate of the full
+# pool on a CPU-only dev box. This is NOT the ranking-step budget (that is the
+# separate <=5 min gate on rank.py); it only guards against an accidental
+# O(n^2) / full-materialization regression in the loader.
+LOAD_TIME_CEILING_SECONDS = 180.0
 
 
 # ---------------------------------------------------------------------------
@@ -279,3 +295,73 @@ class TestSchemaValidator:
         record = {"candidate_id": "CAND_0000001"}  # Missing most keys
         errors = _validate_candidate(record)
         assert any("Missing top-level keys" in e for e in errors)
+
+
+# ---------------------------------------------------------------------------
+# P0 exit-criterion smoke test — "Loads 100K JSONL, validates schema"
+# Runs against the REAL data/originals/candidates.jsonl (~487 MB, ~100K rows).
+# Skipped (not failed) when the production file is absent, so fresh clones and
+# CI without the dataset still go green.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(
+    not ORIGINALS_JSONL.exists(),
+    reason=f"Production dataset not present: {ORIGINALS_JSONL} (skipping 100K smoke test)",
+)
+class TestFull100KLoad:
+    def test_loader_returns_a_generator_not_a_list(self):
+        """100K must stream, not materialize — guard the memory-safety property."""
+        gen = load_candidates(ORIGINALS_JSONL)
+        assert isinstance(gen, types.GeneratorType), (
+            "load_candidates(.jsonl) must return a generator for the 100K pool, "
+            f"got {type(gen)} — a list would risk the 16 GB memory budget."
+        )
+        gen.close()
+
+    def test_first_records_are_valid_and_well_formed(self):
+        """Cheap check: the first 1,000 real records validate and look correct."""
+        seen = 0
+        for cand in iter_candidates_jsonl(ORIGINALS_JSONL, validate=True, skip_invalid=False):
+            assert CANDIDATE_ID_RE.match(cand["candidate_id"]), cand["candidate_id"]
+            assert len(cand["career_history"]) >= 1
+            assert "redrob_signals" in cand
+            seen += 1
+            if seen >= 1000:
+                break
+        assert seen == 1000, f"Expected to stream 1000 valid records, got {seen}"
+
+    def test_full_pool_loads_with_low_skip_rate_and_unique_ids(self):
+        """
+        The headline P0 exit criterion. Stream the ENTIRE file once and assert:
+          - ~100K records load,
+          - every candidate_id matches CAND_XXXXXXX and is unique,
+          - the validator skip-rate is negligible (the real data is clean),
+          - the whole streaming pass stays well under a sane time ceiling.
+        """
+        start = time.perf_counter()
+        ids: set[str] = set()
+        total = 0
+        bad_id = 0
+        dup_id = 0
+
+        for cand in iter_candidates_jsonl(ORIGINALS_JSONL, validate=True, skip_invalid=True):
+            total += 1
+            cid = cand["candidate_id"]
+            if not CANDIDATE_ID_RE.match(cid):
+                bad_id += 1
+            if cid in ids:
+                dup_id += 1
+            else:
+                ids.add(cid)
+
+        elapsed = time.perf_counter() - start
+
+        assert total >= EXPECTED_MIN_CANDIDATES, (
+            f"Loaded only {total} candidates; expected ~100K (>= {EXPECTED_MIN_CANDIDATES})"
+        )
+        assert bad_id == 0, f"{bad_id} loaded records had a malformed candidate_id"
+        assert dup_id == 0, f"{dup_id} duplicate candidate_ids in the pool"
+        assert elapsed < LOAD_TIME_CEILING_SECONDS, (
+            f"Streaming load of the 100K pool took {elapsed:.1f}s "
+            f"(ceiling {LOAD_TIME_CEILING_SECONDS:.0f}s) — possible loader regression."
+        )

@@ -171,12 +171,21 @@ skills:
 
 # -----------------------------------------------------------------------------
 # Location scoring (soft tie-breaker)
+# NOTE: the data's location field is "City, Region" (e.g. "Noida, Uttar Pradesh",
+# "Pune, Maharashtra") — match cities by SUBSTRING, not equality.
+# JD also welcomes Hyderabad / Mumbai / Delhi NCR, so they get a near-preferred score.
 # -----------------------------------------------------------------------------
 location:
-  preferred_cities:
+  match_mode: "substring"   # data is "City, Region"; do not use exact equality
+  preferred_cities:         # JD: "Pune/Noida-preferred"
     - "Noida"
     - "Pune"
+  also_welcome_cities:      # JD: "Candidates in Hyderabad, Pune, Mumbai, Delhi NCR welcome"
+    - "Hyderabad"
+    - "Mumbai"
+    - "Delhi"
   preferred_score: 1.0
+  also_welcome_score: 0.85
   willing_to_relocate_score: 0.7
   other_india_score: 0.5
   outside_india_score: 0.2

@@ -47,18 +47,100 @@ Reference inputs:
 | CV / speech / robotics without NLP/IR | Domain-mismatch penalty | **strong** |
 | 5–9 yrs ("range, not requirement"); ideal 6–8, 4–5 in applied ML at product cos | Soft experience **band**, not a cliff | **strong** |
 | Embeddings retrieval, vector DB, eval frameworks (NDCG/MRR/MAP) in production | Core positive skill signals | **strong** |
-| Noida/Pune preferred; sub-30-day notice loved | Soft tie-breakers only | **weak** |
+| Noida/Pune preferred (Hyderabad/Mumbai/Delhi NCR also welcome); sub-30-day notice loved | Soft tie-breakers only; match city by **substring** (data is `"City, Region"`) | **weak** |
 | "Weigh behavioral signals — inactive + low response = not available" | Availability **multiplier** on fit score | **strong** |
+
+#### 1.1.a What the Strength labels mean (and can we put numbers on them?)
+
+The `Strength` column is a **priority/severity tag**, not itself a score. It answers the question
+*"how much should this rule be allowed to move a candidate's final rank, and in which direction?"*
+It maps to **where in the formula the rule acts** (a weight, a soft band, or a multiplicative gate),
+which is exactly why the four labels behave so differently in numbers.
+
+| Label | Meaning (plain English) | Where it acts in the formula | Approx. quantified effect |
+|---|---|---|---|
+| **decisive** | This *is* the thesis of the JD. Getting it wrong = wrong answer. It dominates ordering. | Drives the **largest fit weight** (`w_role = 0.45`) and the semantic role-fit feature | Can swing fit by the full top weight: **≈ 0–45 of the 100 "fit points."** A profile that fails the career-vs-claims read loses most of its score. |
+| **gate** | A hard disqualifier. Not "scored down a bit" — **multiplicatively killed.** | A `P_penalty` factor multiplied onto the final score | Multiplies final by **0.01–0.40** (i.e. removes **60–99%** of the score). Honeypot ≈ ×0.01, langchain-only-junior ≈ ×0.40. |
+| **strong** | A real, material positive/negative feature — matters a lot but is *tradeable* against other strong features. | Mid-weight fit features (`w_skill = 0.25`, `w_exp = 0.15`) or the behavior multiplier band | Contributes on the order of **±15–25 fit points**, or ×0.5–1.1 via `M_behavior`. |
+| **weak** | A tie-breaker only. Should never change who is in vs out of the top-100, only order among near-ties. | Smallest fit weight (`w_loc = 0.05`) | **≤ 5 fit points.** Only separates candidates who are otherwise ~equal. |
+
+**Can we express them out of 100?** Yes, as a *budget*, with the important caveat that fit and the
+multipliers live on different axes:
+
+- **Additive axis (fit_score, normalized to ~100):** decisive ≈ **45/100**, strong ≈ **15–25/100 each**,
+  weak ≈ **≤ 5/100**. These are literally the `weights:` block in `config/scoring_config.yaml`
+  (`role_fit 0.45`, `skill 0.25`, `experience 0.15`, `education 0.10`, `location 0.05`).
+- **Multiplicative axis (gates, expressed as a retained-fraction %):** gate = "keep **1–40%** of the
+  score." A 90/100 fit profile that trips a research-only gate (×0.20) ends up at an effective **18/100**,
+  i.e. out of contention — which is the whole point of a gate vs. a weight.
+
+So the honest one-line answer: **`decisive`/`strong`/`weak` are positions on a 0–45 / 15–25 / 0–5
+additive-point bracket; `gate` is not on that bracket at all — it is a 1–40% multiplier that can erase
+any number of points.** This separation is deliberate: it lets a single disqualifier override an
+otherwise-excellent keyword-rich profile, which is precisely the trap the JD is testing for.
 
 ### 1.2 What's NOISE in the JD (do not encode)
 Company-stage storytelling, culture/"vibe check", async-writing preference, comp logistics — these
 are not derivable from the candidate JSON and must **not** become scoring features.
+
+#### 1.2.a Concrete examples of each noise category (grounded in the sample data)
+
+"Noise" here means *language in the JD that a human recruiter cares about but that has **no reliable
+field** in the candidate JSON*, so trying to score it would just inject bias or hallucination. Examples,
+using profiles from `data/samples/sample_candidates.json` (and the same patterns appear in
+`data/originals/candidates.jsonl`):
+
+- **Company-stage storytelling** ("we're a Series-B rocketship, want people who thrive in 0→1 chaos").
+  The schema gives us `current_company_size` (e.g. `"10001+"`, `"201-500"`) and `current_industry`,
+  but **nothing about funding stage, growth phase, or "0→1 vs scale" narrative.** Example: `CAND_0000001`
+  (Ira Vora) is at `Mindtree`, size `10001+`, industry `IT Services` — we can read *size* and *industry*
+  (and we do, as a product-company proxy), but we **cannot** read "early-stage builder energy." So we
+  encode size/industry and drop the stage story.
+
+- **Culture / "vibe check"** ("must be a low-ego, high-trust teammate"). Nothing in the JSON measures
+  ego, collaboration style, or values. The closest fields — `profile.summary` and
+  `career_history[].description` — are *self-authored marketing copy*. Example: `CAND_0000001`'s summary
+  ("I'm a backend/data hybrid … building competence on the ML side") tells us about *claimed focus*, not
+  about culture fit. We use that text **only** for semantic role-fit, never as a "vibe" feature.
+
+- **Async-writing preference** ("writes clearly, async-first"). The JD values written communication, but
+  the only writing sample we have is the `summary`/`description` text — and its quality is confounded by
+  whoever wrote the profile, not how the person communicates at work. Example: `CAND_0000002`
+  (Saanvi Sethi) has a fluent, well-written summary, yet her career is Operations/Marketing — good prose
+  must **not** earn AI-fit points. So writing quality is explicitly **not scored** (it stays a Stage-4
+  human-interview criterion in `criteria_map.md` §B).
+
+- **Comp logistics** (budget, equity split, salary banding). `expected_salary_range_inr_lpa` exists
+  (e.g. `CAND_0000001`: 18.7–36.1 LPA) but per the JD it is **not a fit criterion**, so `criteria_map.md`
+  §C marks it **Drop**. Encoding it would rank people by cheapness, not fit.
+
+The rule of thumb: **if a JD phrase can only be answered by a field we don't have, or by reading
+self-written copy as if it were ground truth, it is noise — keep it out of the math and leave it for
+the human interview stage.**
 
 ### 1.3 Signals doc → architecture decision
 The signals doc explicitly says signals are a **"multiplier or modifier on top of skill-match
 scoring."** We honor that literally: `final = fit_score × behavior_multiplier × penalty`.
 Sentinels are **"unknown," never "bad"**: `github_activity_score = -1`, `offer_acceptance_rate = -1`,
 `skill_assessment_scores = {}` → treated as neutral.
+
+> **What "sentinels are unknown, never bad" means.** A *sentinel* is a placeholder value the dataset
+> uses to say *"we have no data here,"* **not** *"the candidate scored zero here."* In this dataset the
+> sentinels are `-1` for numeric fields that are normally `≥ 0` (e.g. `github_activity_score`,
+> `offer_acceptance_rate`) and `{}` (empty dict) for `skill_assessment_scores`. The trap is that `-1` is
+> numerically *lower* than any real score, so if you fed it straight into a formula it would **punish**
+> a candidate for missing data — e.g. someone who simply never linked GitHub (`github_activity_score = -1`)
+> would look *worse* than someone with a genuinely terrible score of `0.1`. That is wrong: absence of a
+> signal is not evidence of a weakness.
+>
+> So we **map every sentinel to neutral before scoring** — it contributes nothing (neither bonus nor
+> penalty) to `M_behavior`, and the multiplier falls back to its `neutral_base` for that signal. Concrete
+> examples from `data/samples/sample_candidates.json`: `CAND_0000002` has
+> `github_activity_score = -1`, `offer_acceptance_rate = -1`, and `skill_assessment_scores = {}` — all
+> three are read as *"no info,"* so her availability multiplier is driven only by the signals she *does*
+> have (`last_active_date`, `recruiter_response_rate`, `interview_completion_rate`), not dragged down by
+> the three blanks. By contrast `CAND_0000001` has a *real* `github_activity_score = 9.2` and a populated
+> `skill_assessment_scores`, so those are scored on their merits. In short: **missing ≠ low.**
 
 ### 1.4 Common vs additional criteria (the mapping deliverable)
 Output `docs/project_docs/criteria_map.md` listing: (a) criteria common to JD + signals + schema,
@@ -87,10 +169,105 @@ final     = fit_score · M_behavior · P_penalty
 - **`P_penalty` (multiplicative kill-switches):** honeypot → ~0; consulting-only/research-only/
   CV-speech-robotics → 0.1–0.3.
 
+#### 2.0.a Where do the weights come from? (the honest answer)
+
+**No document hands us these numbers.** We checked: `job_description.docx` describes *what* a good
+candidate looks like in prose, and `redrob_signals_doc.docx` says only that behavioral signals should
+act as *"a multiplier or modifier on top of skill-match scoring"* — it gives **ranges and types for the
+23 signals but zero weights, zero multiplier values, and no formula.** So every number in §2 and in
+`config/scoring_config.yaml` is **our engineering choice**, derived from the JD's *emphasis*, not copied
+from a spec. That is exactly why §3 and §5 exist: the weights start as **defensible priors** and are
+then **calibrated** by maximizing NDCG@10 on the local proxy eval set. They are starting points, not
+sacred constants.
+
+The priors are set by translating the JD's own language into relative importance:
+
+- `w_role = 0.45` — the JD's thesis ("read what they *did*, not what they *titled* themselves") is
+  **decisive**, so role-fit gets the single largest slice. It alone is ~45% of fit because the whole
+  challenge is built to punish keyword-matching over career-reading.
+- `w_skill = 0.25` — skills matter but are gameable (the keyword trap), so they are second, not first.
+- `w_exp = 0.15` — the JD calls 5–9 yrs a *"range, not a requirement,"* so experience is a **soft band**,
+  not a top driver.
+- `w_edu = 0.10`, `w_loc = 0.05` — education is a minor positive; location is explicitly a **soft
+  tie-breaker only**. They sum with the rest to **1.0** (enforced in config).
+
+#### 2.0.b Why `M_behavior ∈ [~0.5, 1.1]` — what's the reasoning behind 0.5 and 1.1?
+
+`M_behavior` is a **multiplier on an already-computed fit score**, so its job is to *nudge*, not to
+*decide*. The bounds encode a deliberate asymmetry that mirrors the signals doc's logic ("a
+perfect-on-paper candidate who hasn't logged in for 6 months … is, for hiring purposes, not actually
+available"):
+
+- **Upper bound ≈ 1.1 (a small +10% reward).** Being highly available is *nice-to-have*, not a reason to
+  vault a weaker candidate over a stronger one. If we let availability multiply by, say, ×1.5, a mediocre
+  but eager candidate could outrank a clearly better fit — which corrupts NDCG@10. Capping the *bonus* at
+  ~+10% keeps availability as a **tie-breaker among comparable fits**, never a fit substitute.
+- **Lower bound ≈ 0.5 (at most −50%).** Genuinely unavailable candidates (stale + non-responsive) should
+  be pushed down hard, but **not to zero** — that role belongs to the `P_penalty` gates. A great engineer
+  who is merely slow to respond is still a great engineer; halving is a strong demotion without being a
+  death sentence.
+- **`neutral_base = 0.85`** (in config) is the value used when signals are missing/sentinel: it sits
+  *below* 1.0 on purpose, so that candidates with **proven** availability (real, strong signals) can
+  climb toward 1.1, while "unknown" candidates neither get the reward nor get punished as if "bad."
+
+These exact numbers (`min_multiplier 0.50`, `max_multiplier 1.10`, `neutral_base 0.85`, and the per-signal
+weights like `response_rate_weight 0.3`) are **not from any doc** — they are tunable knobs in
+`config/scoring_config.yaml`, chosen so behavior modulates rank by roughly **±10–15% in practice** and
+then refined during calibration (§5). If calibration shows availability should matter more or less, these
+are the first numbers we move.
+
+#### 2.0.c How was `P_penalty` decided?
+
+`P_penalty` is **multiplicative and < 1** because the JD frames these as **disqualifiers**, not
+deductions — and the only honest way to express "this should be disqualified, regardless of how good the
+rest of the profile looks" is to multiply the whole score down. (Subtracting a fixed number wouldn't
+work: a keyword-stuffed honeypot could rack up enough additive points to survive a subtraction. A
+multiplier of ×0.01 cannot be out-earned.) The *magnitude* of each penalty is graded by **how absolute
+the JD is about it:**
+
+| Gate | Config score | Why this severity |
+|---|---|---|
+| Honeypot | `×0.01` | Fabricated profile — must be effectively *removed* (>10% in top-100 = Stage-3 disqualification). Near-zero, not exactly zero, so it still sorts deterministically. |
+| Consulting-only | `×0.15` | JD penalizes *unless* prior product-company experience — strong but recoverable, so harsh-but-not-fatal. |
+| Research-only | `×0.20` | JD wants *production*; pure research is a near-miss, not a fraud. |
+| No recent code (18mo) | `×0.25` | Currency matters but a recent gap is less damning than never having shipped. |
+| Domain mismatch (CV/speech/robotics, no NLP/IR) | `×0.30` | Wrong specialization, but adjacent ML skill is transferable, so the mildest *gate*. |
+| LangChain-only junior (<12mo, no pre-LLM ML) | `×0.40` | The softest gate — junior, not disqualified, just heavily down-weighted. |
+
+Again, **no document specifies 0.01 / 0.15 / 0.20 / …** — these are our calibrated priors in
+`config/scoring_config.yaml`. The ordering (honeypot ≪ consulting < research < no-code < domain <
+langchain) is the part that is *principled*; the precise decimals are tuned so that no gated candidate
+can climb back into the top-100 while a borderline-but-legitimate candidate isn't annihilated.
+
 ### 2.1 Why not LLM-per-candidate?
 The spec forbids it: network off + 5 min for 100K candidates. **All LLM use is offline/dev-time**
 (JD-criteria extraction, reasoning-template design, code review). Runtime is a lightweight feature
 reranker over precomputed embeddings — exactly what the spec recommends.
+
+#### 2.1.a "5 minutes for 100K or for 100?" — settling the ambiguity (from `submission_spec.docx` §10.5)
+
+There are **two different runs** in the spec, and they have **two different scales**. This is the source
+of the confusion, so to be explicit:
+
+1. **The real grading run — full 100K pool, ≤ 5 min.** Stage-3 reproduction runs *our* `rank.py` on the
+   **full 100,000-candidate** file inside the organizers' own sandbox. §10.3 is explicit: *"the ranking
+   step that produces the CSV must complete within \[the 5-minute window]."* Pre-computation
+   (embeddings, indexes) is allowed to run *before* and *may exceed* 5 minutes, but the **ranking step
+   over all 100K must finish in ≤ 5 min on CPU.** **This is the budget we design the architecture around
+   (§7).**
+
+2. **The mandatory public sandbox — ≤ 100 candidates, ≤ 5 min.** §10.5 says the hosted sandbox link only
+   needs to *"Accept a small candidate sample (**≤ 100 candidates**) … Run end-to-end … Complete within
+   the compute budget (≤ 5 min on CPU)."* It then states plainly: *"It does **not** need to handle the
+   full 100K pool — small-sample reproducibility is what we're checking. The full reproduction at Stage 3
+   happens in our own sandbox."*
+
+**So:** we are *evaluated* on **100K in 5 min** (Stage 3, the run that matters), and we merely *demo*
+**≤ 100 in 5 min** in the public sandbox (a cheap "does it run at all?" sanity check, Stage 1). The
+sandbox being only 100 candidates is **not** a relaxation of our performance target — it's just a
+lower-stakes smoke test. Our latency engineering in §7 (offline embedding + vectorized NumPy rerank over
+a hybrid-retrieved shortlist) is sized for the **100K** case; the 100-candidate sandbox then runs the
+identical code path trivially within budget.
 
 ---
 
@@ -111,6 +288,93 @@ Non-linear scales to keep:
 All of this lives in `config/scoring_config.yaml` (human-readable, version-controlled — the documented
 "scoring config", **not** to be confused with the hidden ground truth).
 
+### 3.1 The role-affinity matrix — what it is and how its scores are set
+
+**Is it a similarity matrix?** Conceptually yes, but it is **not learned** and it is **not the main
+role signal.** Two clarifications:
+
+1. **It's a one-dimensional affinity lookup, not a full N×N matrix.** As implemented in
+   `config/scoring_config.yaml → role_affinity:`, it maps **`current_title` (one role) → an affinity
+   score in [0, 1] for the *one* target role (Senior AI Engineer)**. We don't need a square matrix of
+   "every role vs every role" because we only ever rank against a **single** JD. So it is the *target
+   column* of a similarity matrix, not the whole matrix:
+
+   ```
+   "AI Engineer"        : 0.95     "Data Scientist"   : 0.80
+   "ML Engineer"        : 0.95     "Backend Engineer" : 0.50   # check ML-adjacency in history
+   "Research Scientist" : 0.70     "Business Analyst" : 0.10
+   "NLP Engineer"       : 0.90     "Marketing Manager": 0.05
+   "Search/Ranking Eng" : 0.90     "default"          : 0.20   # unknown title
+   ```
+
+2. **How are the scores determined?** They are **hand-set ordinal priors derived from the JD's intent**,
+   not measured from data — and crucially they are a **prior/tie-breaker, not the dominant feature.**
+   The dominant role signal is `s_role_fit`, the *semantic cosine similarity* between the
+   `career_history[].description` text and the frozen JD-intent embedding (§2). The affinity lookup
+   exists to handle the **title** quickly and to encode the JD's explicit "these titles are not equal"
+   rule. The scoring procedure for the title score is:
+
+   - **Anchor the endpoints.** Exact target role = `1.0`; clearly unrelated business roles
+     (Marketing/Operations Manager) ≈ `0.05`; unknown title falls back to `default = 0.20`.
+   - **Rank everything in between by *distance to "builds production AI/ML systems."*** Direct ML
+     engineering titles cluster at `0.90–0.95`; analytical-but-not-engineering (Data Scientist `0.80`,
+     Applied Scientist `0.85`) sit just below; **ambiguous adjacent titles** (Backend/Data/Analytics/
+     Software Engineer `0.40–0.50`) are deliberately *mid-band with a "check career history" caveat*,
+     because the JD's whole point is that a Tier-5 *Backend Engineer who actually built a recsys* is a
+     fit. The low title score is **overridden** by a high `s_role_fit` when the description proves real
+     ML work.
+   - **Pure-research risk is encoded in the title too:** `Research Scientist = 0.70` (not higher),
+     flagged to cross-check against the research-only gate (§4).
+
+   So the numbers are **principled in their *ordering*** (which the JD dictates) but **arbitrary in their
+   exact decimals** (our priors). Like all of §3, they are **calibrated in P5** by maximizing NDCG@10 on
+   the proxy set — if the data says Data Scientist should be `0.85` not `0.80`, we move it.
+
+   **Why hand-set and not learned?** There is no ground-truth label set to learn a matrix from (no
+   leaderboard, only 3 blind submissions). A learned matrix on 50 hand-labeled samples would overfit; a
+   small, monotonic, human-defensible lookup is more robust and is **explainable in the live interview**,
+   which is a Stage-4 scoring criterion. The semantic `s_role_fit` carries the real discriminative load;
+   the affinity matrix is the cheap, transparent title prior layered on top.
+
+#### 3.1.a ⚠️ Data reality: `title` is *decoupled* from `description` — demote the title feature
+
+**Measured fact (not assumed).** Profiling `data/originals/candidates.jsonl` shows that
+`career_history[].title` is **systematically inconsistent** with its own `career_history[].description`.
+In a scan of the first 3,000 candidates, **1,249 career entries** had a title that did not match the work
+their description actually describes. Concrete example — `CAND_0000004`:
+
+| Listed title | Actual description (what the work was) |
+|---|---|
+| "Marketing Manager" | *"Mechanical engineering design role… CAD (SolidWorks, Creo), FEA (ANSYS)…"* |
+| "Operations Manager" | *"Content writing and SEO strategy for a tech-focused publication…"* |
+| "Business Analyst" | *"Operations management role at a logistics company… fulfillment across 3 warehouses…"* |
+
+This is **by design** — it is the dataset's instantiation of the JD's own warning: *"A candidate who has
+all the AI keywords… but whose title is 'Marketing Manager' is not a fit… [but] a Tier-5 candidate… if
+their career history shows they built a recommendation system… is a fit."* **The title is the trap; the
+description is the signal.**
+
+**Consequences for this design (corrections to the §3.1 plan above):**
+
+1. **The `role_affinity[current_title]` lookup is built on an unreliable field and is therefore
+   *demoted*** — from a scored sub-feature to, at most, a **very weak prior / cross-check**, not a
+   meaningful contributor to `s_role_fit`. We must **not** reward a candidate for a good-looking title,
+   nor punish a good description for a bad title. Where title and description disagree, **the description
+   wins, unconditionally.**
+2. **The real role label should be derived from the *descriptions themselves*, not the title.** Instead
+   of "what does `current_title` say," we ask "**does any `career_history[].description` actually
+   describe production retrieval / ranking / recsys / search / applied ML?**" — answered by the semantic
+   `s_role_fit` cosine to the frozen JD-intent embedding. This is the only career signal the data lets us
+   trust.
+3. **Honeypot/decoy resistance.** Because titles are scrambled, any scheme that leans on titles is
+   exploitable by profiles whose titles *look* adjacent. Leaning on descriptions (and the honeypot
+   integrity checks in §4) is what actually keeps decoys out of the top-100.
+
+> **Net change:** keep the affinity table in `config/scoring_config.yaml` for transparency and as a
+> last-resort fallback when a profile has *no usable description text*, but its weight in the role score
+> drops to near-zero. `s_role_fit` over descriptions becomes effectively the **sole** role signal. This
+> strengthens — not weakens — the plan's North Star (read what they *did*, not what they *titled*).
+
 ---
 
 ## 4. Honeypot & Disqualifier Detection (run BEFORE ranking)
@@ -125,6 +389,41 @@ Disqualifier gates (from §1.1): consulting-only, research-only, CV/speech/robot
 **We do not special-case honeypots into the top** — a correct reader avoids them naturally; the detector
 is a safety net.
 
+#### 4.1 What "we do not special-case honeypots into the top — the detector is a safety net" means
+
+This sentence is making a **design-philosophy claim**, and it's worth unpacking because it's easy to
+misread as "we ignore honeypots."
+
+A naïve solution to *"don't rank honeypots in the top-100"* would be to **build the system around hunting
+honeypots** — write lots of brittle rules to *detect and forcibly eject* them. We are saying the
+opposite: **we don't architect the ranker around honeypots at all.** Here's the reasoning:
+
+- **A honeypot is, by construction, a profile that *looks* great on keywords but falls apart when you
+  read the career.** That is the *exact same failure mode* the JD's keyword-trap is testing. So a ranker
+  that correctly reads **career-vs-claims** (our dominant `s_role_fit` feature, §2) will **naturally**
+  score honeypots low — their fabricated/contradictory descriptions simply don't embed near
+  "built production retrieval/ranking at a product company." We don't need a special "is-honeypot?"
+  branch to keep them out of the top; **doing the main job well already keeps them out.** In other words,
+  *avoiding honeypots is a side-effect of being a correct reader, not a separate feature.*
+
+- **The explicit honeypot detector (§4 rules) is therefore a *safety net*, not the primary mechanism.**
+  Its job is to catch the *structural* impossibilities a semantic reader might miss — e.g. `years_of_
+  experience` not matching `Σ duration_months`, "expert in 10 skills with `duration_months == 0`",
+  `education end_year < start_year`, tenure before a company existed. These are *integrity checks on the
+  data*, layered **before** ranking, so that even if a fabricated profile somehow scored well, the
+  ×0.01 honeypot penalty (§2.0.c) removes it. Belt **and** suspenders.
+
+- **Why phrase it this way at all?** Because the failure mode it guards against is over-engineering: if
+  you *special-case* honeypots into/out of the ranking (e.g. hard-coding "any profile mentioning these 80
+  patterns → tier 0"), you risk (a) **false-kills** on legitimate candidates who happen to look similar,
+  and (b) a fragile system that only works because it memorized the *sample* honeypots and breaks on the
+  hidden pool's variants. The robust posture is: **rank correctly so honeypots lose on merit; run the
+  detector as an independent integrity gate so none can slip through.** This also reads well at Stage-4
+  review — it shows we understood the trap conceptually, not just pattern-matched the examples.
+
+In one line: ***honeypot avoidance is an emergent property of reading careers honestly; the detector is
+the redundant guardrail, not the strategy.***
+
 ---
 
 ## 5. Local Proxy Evaluation Harness (because there is NO leaderboard)
@@ -134,16 +433,51 @@ With only **3 blind submissions**, we cannot probe the server. We build our own:
 - Implement **NDCG@10, NDCG@50, MAP, P@10** and the exact composite formula.
 - Use it to (a) calibrate weights, (b) regression-test every change, (c) decide what to submit.
 
+### 5.1 ⚠️ Calibrate few knobs, not many — the label budget is tiny
+**Honest constraint:** ~50 hand-labels is **far too little to fit** the ~40 individually-weighted skills
++ 6 top-level weights + role-affinity table + 6 penalty constants + the behavior model that currently
+live in `config/scoring_config.yaml`. Fitting all of them on 50 points = guaranteed overfit, and it is
+**indefensible at the Stage-5 interview**. So we deliberately **freeze most parameters by principle and
+calibrate only a handful of macro knobs:**
+
+- **Calibrate (≤4 knobs):** the top-level weight split (`role/skill/exp/edu/loc`), the behavior band
+  width (`min/max/neutral_base`), the global penalty floor, and the retrieval cutoff.
+- **Freeze by principle (do not fit):** the per-skill weights (collapse synonyms — e.g. `RAG` ≡
+  `Retrieval-Augmented Generation` — and shrink to a small JD-core set), the role-affinity decimals
+  (already demoted in §3.1.a), and the gate ordering.
+- **Trust platform-verified signals over self-reported ones:** `skill_assessment_scores` (e.g.
+  `CAND_0000001`: NLP 38.8) is harder to game than `proficiency`/`endorsements` (the same profile claims
+  *advanced, 52 endorsements* in **Speech Recognition** — a domain the JD penalizes). Endorsements/
+  proficiency must stay **subordinate** to description-derived evidence.
+
+### 5.2 ⚠️ Top-10 hardening (NDCG@10 = 50% of the score)
+The pool is mostly noise — measured title distribution is dominated by **Business Analyst, HR Manager,
+Mechanical Engineer, Accountant, Project Manager…**; `Software Engineer` is only ~3,450 of 100,000 and
+real AI/ML titles are rare. The JD agrees: *"we'd rather see 10 great matches than 1000 maybes."* With so
+few genuine fits, **NDCG@10 (half the score) is decided by a handful of profiles.** Therefore, before
+*every* submission we run an explicit **manual audit of the final top ~20**: read each career history,
+confirm real production retrieval/ranking/recsys evidence, confirm no honeypot/decoy slipped in, and
+confirm the reasoning is honest and rank-consistent. This human gate is cheap (≤20 profiles) and directly
+protects 50% of the score — the pipeline is not trusted blindly for the top band.
+
 ---
 
 ## 6. Reasoning Generation (no LLM at runtime)
 
-A **deterministic generator** fills real feature values into varied, honest sentences (≈1–2 sentences,
-the spec's recommendation). Must pass the Stage-4 checks: specific facts, JD connection, honest concerns,
-**no hallucination**, variation, rank-tone consistency. Example:
+A **deterministic generator** fills real feature values into varied, honest sentences. The length target
+is **exactly what `submission_spec.docx` §2 states: "a 1-2 sentence justification"** — *not* the ~100
+words from the v1 notes (Appendix A item 5 is struck-through and superseded for this reason). Must pass
+all six Stage-4 checks: **specific facts, JD connection, honest concerns, no hallucination, variation,
+rank-tone consistency.** Example (1 sentence):
 > "Analytics/Backend Engineer, 6.9 yrs; built Spark/Airflow pipelines feeding ML at a product co.,
-> but no production retrieval/ranking; AI skills endorsement-light. Response rate 0.34 — moderate
+> but no production retrieval/ranking; AI skills endorsement-light; response rate 0.34 — moderate
 > availability."
+
+**Anti-hallucination guarantee:** the generator may only emit values that are *literally present* in the
+candidate JSON (years, titles, named skills, signal values). Because `title` is unreliable (see §3.1.a),
+reasoning should describe the **work from `career_history[].description`**, not the job title, to avoid
+contradicting the candidate's own record. Variation is achieved by sentence-template rotation keyed on
+rank band + dominant feature, so the 10 sampled rows at Stage-4 read as genuinely different.
 
 ---
 
@@ -155,6 +489,44 @@ Runtime (≤ 5 min, CPU):   load cache → hybrid retrieve top ~1–2K → featu
 ```
 - Embeddings precomputed offline; runtime is vectorized NumPy/sklearn, no GPU, no network.
 - Verify on a 16 GB CPU-only machine before each submission.
+
+### 7.1 Measured budget (grounded in the real `data/originals/candidates.jsonl`)
+
+The "≤5 min / ≤16 GB" gate must be **sized, not asserted.** Real measured dataset facts:
+
+| Quantity | Measured value |
+|---|---|
+| Candidates | **100,000** |
+| File size | **487 MB** JSONL |
+| `career_history` descriptions | **~300,171** (avg ~3 per candidate), **avg ~396 chars** |
+| Embedding model (`config/jd_embedding_meta.yaml`) | `all-MiniLM-L6-v2`, **384-dim**, normalized |
+
+**What this implies for the budget split (spec §3 / §10.3 — precompute may exceed 5 min; only the
+ranking step that writes the CSV must fit):**
+
+| Stage | Work | Where | Budget |
+|---|---|---|---|
+| **Offline (uncapped)** | Embed ~300K descriptions with MiniLM on CPU; build index; cache vectors + parsed features | dev-time / Docker build | minutes → low tens of min; **no 5-min cap** |
+| **Runtime (≤5 min, hard)** | `np.load` cached vectors → cosine vs JD-intent → feature math → sort → write 100 rows | `rank.py` | **must be ≤5 min on 100K, CPU-only** |
+
+**Memory sizing (must stay ≪ 16 GB):**
+
+- Candidate-level pooled vectors: `100,000 × 384 × 4 B ≈ 154 MB`.
+- Per-description vectors (if kept un-pooled): `~300,171 × 384 × 4 B ≈ 461 MB`.
+- Raw JSONL is 487 MB but is **streamed/parsed offline**; runtime loads only the cached arrays + a
+  compact feature table. Comfortably under 16 GB.
+
+**Hard fail-tests (CI, run before every submission):**
+
+1. **Latency gate:** `rank.py` on the full 100K must complete in **< 5 min wall** on a 16 GB CPU-only
+   box; the job *fails the build* if it doesn't. Profile each phase (load / score / sort / write).
+2. **No-network assertion:** the ranking step asserts zero outbound calls / no hosted-LLM imports.
+3. **Cache-presence assertion:** runtime must find precomputed embeddings; it must **never** embed at
+   runtime (embedding 300K texts live would blow the budget).
+
+> **Why this matters:** the sandbox (§10.5) only exercises ≤100 candidates, so it will *always* pass
+> trivially and gives **false confidence**. The number that actually gates Stage-3 reproduction is the
+> **full 100K runtime**, which is why it is the explicit fail-test here.
 
 ---
 
@@ -195,11 +567,15 @@ Header exactly `candidate_id,rank,score,reasoning`; exactly 100 data rows; ranks
 | Risk | Mitigation |
 |---|---|
 | Accidentally rewards keyword stuffing | Role-gap feature dominates; honeypot/keyword regression tests |
+| **Trusting `current_title`** (titles are scrambled vs descriptions — §3.1.a, 1249/3000 measured) | Demote title-affinity to near-zero; derive role from `career_history[].description` only; description wins on conflict |
 | LLM-at-runtime creeps back in | Hard CI check: ranking step asserts no network import/calls |
-| Overfit to 50 samples | Keep config simple; prefer monotonic, defensible rules |
-| Misses 5-min budget on 100K | Precompute offline; profile runtime each phase |
-| Reasoning hallucinates | Generator only emits values present in the profile |
-| Burn submissions blindly | Decide via local proxy eval, not by submitting |
+| **Overfit to ~50 labels** (config has ~40 skill weights + many constants) | Calibrate ≤4 macro knobs only (§5.1); freeze the rest by principle; collapse skill synonyms |
+| Misses 5-min budget on 100K | Precompute offline; **measured budget table + hard latency fail-test on full 100K (§7.1)**; sandbox's 100-row pass is *not* sufficient evidence |
+| **False confidence from sandbox (≤100 rows)** | Gate on full-100K runtime, not the sandbox sample (§7.1) |
+| Reasoning hallucinates / wrong length | Generator emits only profile-present values; **1–2 sentences per spec §2** (not ~100 words); describe work, not title |
+| **Location field is `"City, Region"`; JD welcomes Hyderabad/Mumbai/Delhi NCR too** | Substring-match cities; widen preferred list beyond Noida/Pune (soft `w_loc=0.05` only) |
+| `no_recent_code` gate is low-coverage (`github_activity_score=-1` is a sentinel for many) | Lean on recency of ML-relevant `career_history` descriptions, not GitHub score |
+| Burn submissions blindly | Decide via local proxy eval + top-20 manual audit (§5.2), not by submitting |
 
 ---
 
@@ -228,8 +604,13 @@ Header exactly `candidate_id,rank,score,reasoning`; exactly 100 data rows; ranks
 
 4. The weighted document then serves as the **scoring config** (NOT the hidden ground truth).
 
-5. Base the reasoning on the scoring config + candidate JSON, ~100 words, detailed but concise —
+5. Base the reasoning on the scoring config + candidate JSON, ~~~100 words~~, detailed but concise —
    generated **deterministically at runtime** (no hosted LLM call).
+   > **Superseded — see §6.** This v1 note said "~100 words," but `submission_spec.docx` §2 specifies
+   > **"a 1-2 sentence justification"** (its worked examples in §6 are single sentences). The authoritative
+   > target is **1–2 sentences**, not ~100 words. A 100-word block across 100 rows also increases exposure
+   > to the Stage-4 "variation / templated reasoning" penalty. The v1 wording is retained struck-through
+   > for traceability only.
 
 6. Latency is a criterion — see `docs/reference_docs/submission_spec.docx`.
 
