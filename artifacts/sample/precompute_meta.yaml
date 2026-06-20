@@ -1,0 +1,13 @@
+embedding_dim: 384
+generated_date: '2026-06-20'
+input_path: C:\Users\sandi\Desktop\ML Working Folder\redrob_project\data\samples\sample_candidates.json
+intent_queries:
+- built and deployed production retrieval and ranking systems for real users
+- recommendation, search, or recsys at a product company (not consulting)
+- 'evaluation frameworks for ranking: NDCG, MRR, MAP, offline-to-online'
+- embeddings and vector databases used in production at scale
+model: all-MiniLM-L6-v2
+normalized: true
+note: Dev-time only. rank.py loads this at runtime (no model).
+num_candidates: 50
+num_descriptions: 147

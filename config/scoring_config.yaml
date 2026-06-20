@@ -39,6 +39,18 @@ role_fit:
     - "embeddings and vector databases used in production at scale"
 
 # -----------------------------------------------------------------------------
+# Two-band retrieval (P4, EXCEUTION_PLAN §2.5 / MINIMAX #7)
+# Runtime does NOT score all 100K candidates — it shortlists ~1–2K
+# by s_dense cosine and reranks. The second-chance band catches
+# jargon-heavy real fits that the dense centroid underestimates.
+# `k` is a calibratable macro knob (P5).
+# -----------------------------------------------------------------------------
+retrieve:
+  k: 1500                         # first-band size (top-k by s_dense)
+  second_chance_threshold: 0.7    # (s_skill + s_exp)/2 above this → second band
+  second_chance_max: 500          # hard cap on second-band size
+
+# -----------------------------------------------------------------------------
 # Experience band (soft, not a cliff)
 # Peak score at ideal_min–ideal_max; tapers outside
 # -----------------------------------------------------------------------------
