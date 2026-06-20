@@ -1,0 +1,61 @@
+# .dockerignore — keep the build context small and exclude non-runtime assets.
+#
+# The image only needs: src/, config/, models/, artifacts/, requirements.txt, README.md.
+# Everything else (data, dev caches, tests, CI, original candidates, etc.) is excluded.
+
+# Dev caches
+.git/
+.gitignore
+.gitattributes
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Data — never bake into the image; mount at runtime
+data/originals/
+data/originals.zip
+data/originals.tar.gz
+
+# Outputs
+outputs/
+*.csv
+!data/samples/sample_candidates.json
+
+# Tests — not needed at runtime
+tests/
+
+# CI / docs scaffolding
+.github/
+docs/agent_logs/
+docs/agent_session_*.md
+docs/drafts/
+docs/reference_docs/validate_submission.py.bak
+
+# Repo metadata
+LICENSE
+*.md
+!README.md
+
+# Build artifacts
+dist/
+build/
+*.tar
+*.zip

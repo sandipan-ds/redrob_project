@@ -76,7 +76,14 @@ META_PATH = CONFIG_DIR / "jd_embedding_meta.yaml"
 
 # Model: lightweight, CPU-friendly, strong on technical text
 # all-MiniLM-L6-v2: 384-dim, ~80MB, fast on CPU, good semantic alignment
-DEFAULT_MODEL = "all-MiniLM-L6-v2"
+#
+# We vendor the model into models/all-MiniLM-L6-v2/ so a clean machine
+# can run precompute with no network (PHASED_BUILD_PLAN §P7 task 1).
+# DEFAULT_MODEL points at the vendored path; SentenceTransformer accepts
+# both short names and local directories.
+REPO_ROOT = Path(__file__).parent.parent
+VENDORED_MODEL_DIR = REPO_ROOT / "models" / "all-MiniLM-L6-v2"
+DEFAULT_MODEL = str(VENDORED_MODEL_DIR)
 
 
 def generate_jd_embedding(

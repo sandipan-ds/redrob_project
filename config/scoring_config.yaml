@@ -1,412 +1,271 @@
-# =============================================================================
-# Redrob Challenge — Scoring Configuration
-# Version: 1.0 (P0 scaffold — weights to be calibrated in P5)
-# =============================================================================
-# This file is the HUMAN-READABLE scoring config, NOT the hidden ground truth.
-# All weights and thresholds here are calibrated against the local proxy eval set.
-# Edit this file to tune the ranker; the ranker reads it at startup.
-
-# -----------------------------------------------------------------------------
-# Top-level score weights (must sum to 1.0)
-# final = fit_score * M_behavior * P_penalty
-# fit_score = w_role*s_role + w_skill*s_skill + w_exp*s_exp + w_edu*s_edu + w_loc*s_loc
-# -----------------------------------------------------------------------------
 weights:
-  role_fit:   0.45   # Dominant — semantic career↔JD match (defeats keyword trap)
-  skill:      0.25   # JD-relevant skills, endorsement/duration-weighted
-  experience: 0.15   # Soft band peaking at 6–8 yrs
-  education:  0.10   # Institution tier + CGPA (non-linear)
-  location:   0.05   # Noida/Pune/relocation — soft tie-breaker only
-
-# -----------------------------------------------------------------------------
-# Role-fit feature internals (EXCEUTION_PLAN §2.5.a/b/f)
-# s_role_fit = w_dense*s_dense + w_lex*s_lex, recency-weighted, top-K-mean pooled.
-# w_dense / w_lex are calibrated macro knobs (P5).
-# -----------------------------------------------------------------------------
+  role_fit: 0.4764705235294765
+  skill: 0.2647057352942647
+  experience: 0.15882384117615883
+  education: 0.04999995000005001
+  location: 0.04999995000005001
 role_fit:
-  w_dense: 0.70           # multi-query dense cosine (max over intent queries)
-  w_lex:   0.30           # production-evidence lexical (BM25/TF-IDF) match
-  pool: "topk_mean"       # one of: topk_mean | max
-  pool_k: 2               # top-K descriptions averaged when pool=topk_mean
-  duration_weight: true   # weight each description by duration_months
-  recency_half_life_months: 36   # decay old ML stints; recent work counts more
-  min_desc_chars: 40      # below this → thin-desc fallback to title prior (§2.5.h)
-  # Multi-query JD-intent set (frozen at dev-time; vectors live in config/*.npy)
+  w_dense: 0.8
+  w_lex: 0.2
+  pool: topk_mean
+  pool_k: 2
+  duration_weight: true
+  recency_half_life_months: 36
+  min_desc_chars: 40
   intent_queries:
-    - "built and deployed production retrieval and ranking systems for real users"
-    - "recommendation, search, or recsys at a product company (not consulting)"
-    - "evaluation frameworks for ranking: NDCG, MRR, MAP, offline-to-online"
-    - "embeddings and vector databases used in production at scale"
-
-# -----------------------------------------------------------------------------
-# Two-band retrieval (P4, EXCEUTION_PLAN §2.5 / MINIMAX #7)
-# Runtime does NOT score all 100K candidates — it shortlists ~1–2K
-# by s_dense cosine and reranks. The second-chance band catches
-# jargon-heavy real fits that the dense centroid underestimates.
-# `k` is a calibratable macro knob (P5).
-# -----------------------------------------------------------------------------
+  - built and deployed production retrieval and ranking systems for real users
+  - recommendation, search, or recsys at a product company (not consulting)
+  - 'evaluation frameworks for ranking: NDCG, MRR, MAP, offline-to-online'
+  - embeddings and vector databases used in production at scale
 retrieve:
-  k: 1500                         # first-band size (top-k by s_dense)
-  second_chance_threshold: 0.7    # (s_skill + s_exp)/2 above this → second band
-  second_chance_max: 500          # hard cap on second-band size
-
-# -----------------------------------------------------------------------------
-# Experience band (soft, not a cliff)
-# Peak score at ideal_min–ideal_max; tapers outside
-# -----------------------------------------------------------------------------
+  k: 1500
+  second_chance_threshold: 0.7
+  second_chance_max: 500
 experience:
   ideal_min_yrs: 6.0
   ideal_max_yrs: 8.0
-  acceptable_min_yrs: 4.0   # Below this → steep penalty
-  acceptable_max_yrs: 12.0  # Above this → mild penalty (over-qualified)
-  hard_min_yrs: 2.0          # Below this → near-zero score
-
-# -----------------------------------------------------------------------------
-# Education scoring
-# -----------------------------------------------------------------------------
+  acceptable_min_yrs: 4.0
+  acceptable_max_yrs: 12.0
+  hard_min_yrs: 2.0
 education:
   tier_scores:
     tier_1: 1.0
     tier_2: 0.75
-    tier_3: 0.50
+    tier_3: 0.5
     tier_4: 0.25
-    unknown: 0.30   # Sentinel — neutral, not bad
-
+    unknown: 0.3
   cgpa:
-    min_threshold: 7.0    # Below this → score = 1 on 0–7 ramp (non-linear)
-    # Above min_threshold: maps linearly from 1.0 (at 7.0) to recruiter_max (at 10.0)
-    recruiter_max: 10.0   # Recruiter rating for perfect CGPA
-    below_threshold_scale: 0.14  # score = cgpa * below_threshold_scale (0–7 → 0–1)
-
-  # Degree relevance multiplier
+    min_threshold: 7.0
+    recruiter_max: 10.0
+    below_threshold_scale: 0.14
   relevant_fields:
-    - "Computer Science"
-    - "Artificial Intelligence"
-    - "Machine Learning"
-    - "Data Science"
-    - "Information Technology"
-    - "Statistics"
-    - "Mathematics"
-    - "Electronics"
-    - "Computer Engineering"
+  - Computer Science
+  - Artificial Intelligence
+  - Machine Learning
+  - Data Science
+  - Information Technology
+  - Statistics
+  - Mathematics
+  - Electronics
+  - Computer Engineering
   relevant_field_bonus: 1.0
   irrelevant_field_penalty: 0.7
-
-# -----------------------------------------------------------------------------
-# Skill scoring
-# JD-relevant skills with base weights (recruiter-rated, 0–10 scale → normalized)
-# Endorsement floor: linear 0→endorse_floor, capped at recruiter rating
-# Duration: used as a trust multiplier on proficiency claims
-# -----------------------------------------------------------------------------
 skills:
-  endorse_floor: 30   # Endorsements above this are capped
-
-  # Synonym-collapse map (EXECUTION_PLAN §5.1, GLM-v2 #A4).
-  # Normalize each skills[].name to its canonical form BEFORE scoring so equivalents
-  # are not double-counted (e.g. a candidate listing both "RAG" and
-  # "Retrieval-Augmented Generation" must score the canonical skill ONCE, not twice).
-  # Match case-insensitively; canonical name must exist in jd_core_skills.
+  endorse_floor: 30
   skill_synonyms:
-    "Retrieval-Augmented Generation": "RAG"
-    "Retrieval Augmented Generation": "RAG"
-    "Vector DB": "Vector Database"
-    "Vector Databases": "Vector Database"
-    "Milvus": "Vector Database"
-    "Pinecone": "Vector Database"
-    "Weaviate": "Vector Database"
-    "Qdrant": "Vector Database"
-    "FAISS": "Vector Database"
-    "Faiss": "Vector Database"
-    "Elasticsearch": "Vector Database"
-    "OpenSearch": "Vector Database"
-    "Recommender Systems": "Recommendation Systems"
-    "RecSys": "Recommendation Systems"
-    "IR": "Information Retrieval"
-    "Sentence Transformers": "Embeddings"
-    "sentence-transformers": "Embeddings"
-    "BGE": "Embeddings"
-    "E5": "Embeddings"
-    "Hugging Face": "Transformers"
-    "HuggingFace": "Transformers"
-    "LoRA": "Fine-tuning LLMs"
-    "QLoRA": "Fine-tuning LLMs"
-    "PEFT": "Fine-tuning LLMs"
-    "Large Language Models": "LLM"
-    "LLMs": "LLM"
-    "scikit-learn": "Scikit-learn"
-    "sklearn": "Scikit-learn"
-
-  # Core positive signals from JD (high weight)
+    Retrieval-Augmented Generation: RAG
+    Retrieval Augmented Generation: RAG
+    Vector DB: Vector Database
+    Vector Databases: Vector Database
+    Milvus: Vector Database
+    Pinecone: Vector Database
+    Weaviate: Vector Database
+    Qdrant: Vector Database
+    FAISS: Vector Database
+    Faiss: Vector Database
+    Elasticsearch: Vector Database
+    OpenSearch: Vector Database
+    Recommender Systems: Recommendation Systems
+    RecSys: Recommendation Systems
+    IR: Information Retrieval
+    Sentence Transformers: Embeddings
+    sentence-transformers: Embeddings
+    BGE: Embeddings
+    E5: Embeddings
+    Hugging Face: Transformers
+    HuggingFace: Transformers
+    LoRA: Fine-tuning LLMs
+    QLoRA: Fine-tuning LLMs
+    PEFT: Fine-tuning LLMs
+    Large Language Models: LLM
+    LLMs: LLM
+    scikit-learn: Scikit-learn
+    sklearn: Scikit-learn
   jd_core_skills:
-    - name: "Python"
-      weight: 8
-    - name: "Machine Learning"
-      weight: 8
-    - name: "Deep Learning"
-      weight: 7
-    - name: "NLP"
-      weight: 9
-    - name: "Information Retrieval"
-      weight: 9
-    - name: "Embeddings"
-      weight: 9
-    - name: "Vector Database"
-      weight: 8
-    - name: "RAG"
-      weight: 8   # canonical; "Retrieval-Augmented Generation" collapses here (no double-count)
-    - name: "LangChain"
-      weight: 5   # Low — <12mo LangChain-only is a disqualifier
-    - name: "LLM"
-      weight: 7
-    - name: "Fine-tuning LLMs"
-      weight: 7
-    - name: "Recommendation Systems"
-      weight: 9
-    - name: "Search"
-      weight: 8
-    - name: "Ranking"
-      weight: 9
-    - name: "NDCG"
-      weight: 8
-    - name: "MRR"
-      weight: 7
-    - name: "MAP"
-      weight: 7
-    - name: "Spark"
-      weight: 6
-    - name: "Airflow"
-      weight: 5
-    - name: "SQL"
-      weight: 6
-    # NOTE: Milvus / Pinecone / Weaviate / Faiss collapse to "Vector Database" (w=8)
-    #       and "Hugging Face" collapses to "Transformers" via skill_synonyms above.
-    #       They are intentionally NOT listed standalone here, to avoid double-counting
-    #       (GLM-v3 #2). Do not re-add them as separate jd_core_skills entries.
-    - name: "PyTorch"
-      weight: 7
-    - name: "TensorFlow"
-      weight: 6
-    - name: "Scikit-learn"
-      weight: 6
-    - name: "Transformers"
-      weight: 7
-    - name: "MLflow"
-      weight: 6
-    - name: "Weights & Biases"
-      weight: 5
-    - name: "BentoML"
-      weight: 5
-    - name: "FastAPI"
-      weight: 5
-    - name: "Docker"
-      weight: 5
-    - name: "Kubernetes"
-      weight: 4
-    - name: "AWS"
-      weight: 5
-    - name: "GCP"
-      weight: 5
-    - name: "Azure"
-      weight: 5
-
-  # Noise / irrelevant skills (do not score positively)
+  - name: Python
+    weight: 8
+  - name: Machine Learning
+    weight: 8
+  - name: Deep Learning
+    weight: 7
+  - name: NLP
+    weight: 9
+  - name: Information Retrieval
+    weight: 9
+  - name: Embeddings
+    weight: 9
+  - name: Vector Database
+    weight: 8
+  - name: RAG
+    weight: 8
+  - name: LangChain
+    weight: 5
+  - name: LLM
+    weight: 7
+  - name: Fine-tuning LLMs
+    weight: 7
+  - name: Recommendation Systems
+    weight: 9
+  - name: Search
+    weight: 8
+  - name: Ranking
+    weight: 9
+  - name: NDCG
+    weight: 8
+  - name: MRR
+    weight: 7
+  - name: MAP
+    weight: 7
+  - name: Spark
+    weight: 6
+  - name: Airflow
+    weight: 5
+  - name: SQL
+    weight: 6
+  - name: PyTorch
+    weight: 7
+  - name: TensorFlow
+    weight: 6
+  - name: Scikit-learn
+    weight: 6
+  - name: Transformers
+    weight: 7
+  - name: MLflow
+    weight: 6
+  - name: Weights & Biases
+    weight: 5
+  - name: BentoML
+    weight: 5
+  - name: FastAPI
+    weight: 5
+  - name: Docker
+    weight: 5
+  - name: Kubernetes
+    weight: 4
+  - name: AWS
+    weight: 5
+  - name: GCP
+    weight: 5
+  - name: Azure
+    weight: 5
   noise_skills:
-    - "Photoshop"
-    - "Illustrator"
-    - "Figma"
-    - "PowerPoint"
-    - "Excel"
-    - "SEO"
-    - "Content Writing"
-    - "Marketing"
-    - "Sales"
-    - "Accounting"
-    - "Six Sigma"
-    - "SAP"
-    - "Tailwind"
-    - "Redux"
-    - "Angular"
-    - "React"
-
-# -----------------------------------------------------------------------------
-# Location scoring (soft tie-breaker)
-# NOTE: the data's location field is "City, Region" (e.g. "Noida, Uttar Pradesh",
-# "Pune, Maharashtra") — match cities by SUBSTRING, not equality.
-# JD also welcomes Hyderabad / Mumbai / Delhi NCR, so they get a near-preferred score.
-# -----------------------------------------------------------------------------
+  - Photoshop
+  - Illustrator
+  - Figma
+  - PowerPoint
+  - Excel
+  - SEO
+  - Content Writing
+  - Marketing
+  - Sales
+  - Accounting
+  - Six Sigma
+  - SAP
+  - Tailwind
+  - Redux
+  - Angular
+  - React
 location:
-  match_mode: "substring"   # data is "City, Region"; do not use exact equality
-  preferred_cities:         # JD: "Pune/Noida-preferred"
-    - "Noida"
-    - "Pune"
-  also_welcome_cities:      # JD: "Candidates in Hyderabad, Pune, Mumbai, Delhi NCR welcome"
-    - "Hyderabad"
-    - "Mumbai"
-    - "Delhi"
+  match_mode: substring
+  preferred_cities:
+  - Noida
+  - Pune
+  also_welcome_cities:
+  - Hyderabad
+  - Mumbai
+  - Delhi
   preferred_score: 1.0
   also_welcome_score: 0.85
   willing_to_relocate_score: 0.7
   other_india_score: 0.5
   outside_india_score: 0.2
-
-# -----------------------------------------------------------------------------
-# Behavior multiplier M_behavior ∈ [~0.5, 1.1]
-# Sentinels (-1, {}) → treated as neutral (0.0 contribution, not penalized)
-# -----------------------------------------------------------------------------
 behavior:
-  # last_active_date recency scoring (days since last active)
   recency_thresholds:
-    very_active_days: 30    # → score 1.0
-    active_days: 90         # → score 0.8
-    moderate_days: 180      # → score 0.6
-    stale_days: 365         # → score 0.3
-    inactive_score: 0.1     # > stale_days
-
-  # open_to_work_flag
-  open_to_work_bonus: 0.1   # Added to multiplier if true
-
-  # recruiter_response_rate (0–1)
+    very_active_days: 30
+    active_days: 90
+    moderate_days: 180
+    stale_days: 365
+    inactive_score: 0.1
+  open_to_work_bonus: 0.1
   response_rate_weight: 0.3
-
-  # interview_completion_rate (0–1)
   interview_completion_weight: 0.2
-
-  # notice_period_days (lower is better)
   notice_period:
     sub_30_bonus: 0.05
     sub_60_neutral: 0.0
     above_90_penalty: -0.05
-
-  # Multiplier bounds
-  min_multiplier: 0.50
-  max_multiplier: 1.10
-  neutral_base: 0.85   # Base when all signals are neutral/sentinel
-
-# -----------------------------------------------------------------------------
-# Penalty gates P_penalty (multiplicative kill-switches)
-# Applied BEFORE ranking. These are hard disqualifiers from the JD.
-# Combination (EXCEUTION_PLAN §2.5.d/e):
-#   non_hp gates pre-scaled by p_scale; P = honeypot? * min(non_hp) * prod(others)**0.5
-#   honeypot always applies at full strength.
-# p_scale is a CALIBRATED macro knob (P5) — it replaces the 6 previously-hidden
-# per-gate constants in the honest knob budget.
-# -----------------------------------------------------------------------------
+  min_multiplier: 0.5
+  max_multiplier: 1.1
+  neutral_base: 0.85
 penalties:
-  p_scale: 1.0    # global severity scale for non-honeypot gates (calibrated)
+  p_scale: 1.5
   honeypot:
-    score: 0.01   # Effectively removes from top-100 (never scaled)
-
-  # Consulting-only career (no prior product-company experience)
-  # §2.5.j generalized detector: fire if consulting-only by EITHER signal —
-  #   (a) every career_history[].company ∈ consulting_companies (name list, high-precision), OR
-  #   (b) every stint has industry ∈ consulting_industries AND company_size ∈ consulting_company_sizes.
-  # EXEMPTION: if ANY career_history[] entry has industry NOT in consulting_industries → does not fire.
+    score: 0.01
   consulting_only:
     score: 0.15
     consulting_companies:
-      - "TCS"
-      - "Infosys"
-      - "Wipro"
-      - "Accenture"
-      - "Cognizant"
-      - "Capgemini"
-      - "HCL"
-      - "Tech Mahindra"
-      - "Mindtree"
-      - "Mphasis"
-    consulting_industries:           # §2.5.j generalized proxy
-      - "IT Services"
-    consulting_company_sizes:        # large-band = consulting proxy (small/mid product cos exempt)
-      - "1001-5000"
-      - "5001-10000"
-      - "10001+"
-
-  # Pure research only (no production ML code)
-  # §2.5.c conjunctive: fires ONLY if ALL three hold —
-  #   (1) no production-lexicon match in role_fit_text (broad synonym set),
-  #   (2) no product-company tenure (every stint's industry is in
-  #       consulting_industries ∪ research_industries — i.e. consulting OR academic,
-  #       never a for-profit product co),
-  #   (3) explicit research framing in title or descriptions.
-  # Otherwise → mild soft demotion, NOT a gate.
+    - TCS
+    - Infosys
+    - Wipro
+    - Accenture
+    - Cognizant
+    - Capgemini
+    - HCL
+    - Tech Mahindra
+    - Mindtree
+    - Mphasis
+    consulting_industries:
+    - IT Services
+    consulting_company_sizes:
+    - 1001-5000
+    - 5001-10000
+    - 10001+
   research_only:
-    score: 0.20
-    # Industries that count as "not a product company" for condition (2).
-    # A stint in any other industry is a product-co stint → condition (2) fails.
+    score: 0.2
     research_industries:
-      - "Education"
-      - "Research"
-
-  # No production code in last 18 months
+    - Education
+    - Research
   no_recent_code:
     score: 0.25
     lookback_months: 18
-
-  # CV / speech / robotics without NLP/IR
   domain_mismatch:
-    score: 0.30
+    score: 0.3
     mismatch_domains:
-      - "Computer Vision"
-      - "Speech Recognition"
-      - "Robotics"
-      - "TTS"
-      - "Image Classification"
-      - "Object Detection"
-      - "GANs"
-
-  # LangChain-only AI experience < 12 months without pre-LLM ML production
-  # §2.5.j demoted: NOT a hard gate by default. Apply the ×0.40 penalty ONLY if ALL three
-  #   conjunctive conditions hold — (1) total AI exp < 12 months, (2) no pre-2022 ML production,
-  #   (3) LangChain is the ONLY AI signal. Otherwise → mild soft demotion.
-  #   A real junior is already demoted by role-fit + the exp band; a hard gate risks
-  #   false-firing on a senior who recently added LangChain.
+    - Computer Vision
+    - Speech Recognition
+    - Robotics
+    - TTS
+    - Image Classification
+    - Object Detection
+    - GANs
   langchain_only_junior:
-    score: 0.40          # full penalty — applied only when all 3 conjunctive conditions hold
-    soft_demotion: 0.70  # mild multiplicative demotion when not all conditions hold (not a gate)
-    junior_exp_months: 12      # condition (1): total AI experience threshold
-    pre_llm_cutoff_year: 2022  # condition (2): pre-LLM ML must be before this year
-
-# -----------------------------------------------------------------------------
-# Role affinity matrix
-# Maps current_title → affinity score (0–1) for Senior AI Engineer role
-# Data Scientist ≠ Software Engineer ≠ Business Analyst
-# -----------------------------------------------------------------------------
+    score: 0.4
+    soft_demotion: 0.7
+    junior_exp_months: 12
+    pre_llm_cutoff_year: 2022
 role_affinity:
-  "Senior AI Engineer": 1.0
-  "AI Engineer": 0.95
-  "ML Engineer": 0.95
-  "Machine Learning Engineer": 0.95
-  "Research Scientist": 0.70   # Research-only risk; check career history
-  "Data Scientist": 0.80
-  "Applied Scientist": 0.85
-  "NLP Engineer": 0.90
-  "Search Engineer": 0.90
-  "Ranking Engineer": 0.90
-  "Recommendation Systems Engineer": 0.90
-  "Backend Engineer": 0.50    # Check if ML-adjacent in career history
-  "Data Engineer": 0.45
-  "Analytics Engineer": 0.40
-  "Software Engineer": 0.45
-  "Full Stack Engineer": 0.30
-  "Business Analyst": 0.10
-  "Marketing Manager": 0.05
-  "Operations Manager": 0.05
-  "Product Manager": 0.15
-  "default": 0.20             # Fallback for unrecognized titles
-
-# -----------------------------------------------------------------------------
-# Honeypot detection thresholds
-# -----------------------------------------------------------------------------
+  Senior AI Engineer: 1.0
+  AI Engineer: 0.95
+  ML Engineer: 0.95
+  Machine Learning Engineer: 0.95
+  Research Scientist: 0.7
+  Data Scientist: 0.8
+  Applied Scientist: 0.85
+  NLP Engineer: 0.9
+  Search Engineer: 0.9
+  Ranking Engineer: 0.9
+  Recommendation Systems Engineer: 0.9
+  Backend Engineer: 0.5
+  Data Engineer: 0.45
+  Analytics Engineer: 0.4
+  Software Engineer: 0.45
+  Full Stack Engineer: 0.3
+  Business Analyst: 0.1
+  Marketing Manager: 0.05
+  Operations Manager: 0.05
+  Product Manager: 0.15
+  default: 0.2
 honeypot_detection:
-  # Max allowed gap between profile.years_of_experience and sum of career_history.duration_months
   experience_mismatch_tolerance_months: 12
-
-  # Max skills that can be advanced/expert with duration_months == 0
   max_zero_duration_expert_skills: 2
-
-  # Education sanity: end_year must be >= start_year
   education_year_sanity: true
-
-  # Min plausible company founding year (for tenure-before-existence check)
-  # Companies founded after this year are checked against start_date
-  min_company_founding_year: 1900   # Placeholder; specific companies checked in code
+  min_company_founding_year: 1900

@@ -289,7 +289,7 @@ class TestDisqualifierGates:
         assert reasons == []
 
     def test_consulting_only_synthetic(self):
-        """All-India-IT-Services career → consulting_only fires → P ≈ 0.15."""
+        """All-India-IT-Services career → consulting_only fires → P = score × p_scale."""
         cand = _make_candidate(
             yoe=8.0,
             career=[
@@ -302,7 +302,8 @@ class TestDisqualifierGates:
         )
         p, reasons = compute_penalty(cand, CFG)
         assert "consulting_only" in reasons
-        assert p == pytest.approx(0.15, abs=1e-6)
+        p_scale = CFG["penalties"]["p_scale"]
+        assert p == pytest.approx(0.15 * p_scale, abs=1e-6)
         # And no honeypot
         assert "honeypot" not in reasons
 
@@ -346,8 +347,12 @@ class TestDisqualifierGates:
         # consulting_only should NOT fire (no stint in consulting_companies, and
         # industry="Research" is not in consulting_industries → not consulting).
         assert "consulting_only" not in reasons
-        # Stacked: min(0.20, 0.25) × √0.25 = 0.20 × 0.5 = 0.10
-        expected = 0.20 * (0.25 ** 0.5)
+        # Stacked (p_scale-aware): min(0.20, 0.25) × p_scale = 0.30 worst, then
+        # × √(0.25 × p_scale) for the secondary. See §2.5.d combination.
+        p_scale = CFG["penalties"]["p_scale"]
+        worst = 0.20 * p_scale
+        secondary = 0.25 * p_scale
+        expected = worst * (secondary ** 0.5)
         assert p == pytest.approx(expected, abs=1e-3)
 
     def test_stacked_consulting_and_research_is_softened(self):
@@ -387,8 +392,14 @@ class TestDisqualifierGates:
         assert "consulting_only" in reasons
         assert "research_only" in reasons
         assert "no_recent_code" in reasons
-        # §2.5.d: min(0.15, 0.20, 0.25) × √(0.20 × 0.25) = 0.15 × √0.05 ≈ 0.0335
-        expected = 0.15 * (0.20 * 0.25) ** 0.5
+        # §2.5.d: each gate score is scaled by p_scale, then worst-at-full,
+        # others geometric. For 3 gates (scores 0.15, 0.20, 0.25) with
+        # p_scale: min(scaled) × √(prod(other scaled)) = 0.225 × √(0.30×0.375).
+        p_scale = CFG["penalties"]["p_scale"]
+        worst = 0.15 * p_scale
+        sec1 = 0.20 * p_scale
+        sec2 = 0.25 * p_scale
+        expected = worst * (sec1 * sec2) ** 0.5
         assert p == pytest.approx(expected, abs=1e-3), (
             f"Expected softened stacked penalty ≈ {expected:.4f}, got {p:.4f}"
         )
@@ -502,7 +513,8 @@ class TestDisqualifierGates:
         assert "langchain_only_junior" in reasons
         # no_recent_code should NOT fire (recent career with production terms).
         assert "no_recent_code" not in reasons
-        assert p == pytest.approx(0.40, abs=1e-6)
+        p_scale = CFG["penalties"]["p_scale"]
+        assert p == pytest.approx(0.40 * p_scale, abs=1e-6)
 
     def test_sentinels_do_not_trigger_any_gate(self):
         """
@@ -585,7 +597,8 @@ class TestCombinationFormula:
         )
         p, reasons = compute_penalty(cand, CFG)
         assert "consulting_only" in reasons
-        assert p == pytest.approx(0.15, abs=1e-6)
+        p_scale = CFG["penalties"]["p_scale"]
+        assert p == pytest.approx(0.15 * p_scale, abs=1e-6)
         assert len(reasons) == 1
 
     def test_two_gates_soften_secondary(self):
@@ -621,8 +634,13 @@ class TestCombinationFormula:
         p, reasons = compute_penalty(cand, CFG)
         assert "consulting_only" in reasons
         assert "research_only" in reasons
-        # min(0.15, 0.20, 0.25) × √(0.20 × 0.25) = 0.15 × √0.05 ≈ 0.0335
-        assert p == pytest.approx(0.15 * (0.20 * 0.25) ** 0.5, abs=1e-3)
+        # §2.5.d (p_scale-aware): min(scaled) × √(prod(other scaled)).
+        p_scale = CFG["penalties"]["p_scale"]
+        worst = 0.15 * p_scale
+        sec1 = 0.20 * p_scale
+        sec2 = 0.25 * p_scale
+        expected = worst * (sec1 * sec2) ** 0.5
+        assert p == pytest.approx(expected, abs=1e-3)
 
     def test_honeypot_overrides_all(self):
         """A honeypot returns 0.01 regardless of other gates — single arm."""

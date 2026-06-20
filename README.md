@@ -1,93 +1,121 @@
-# redrob_project
+# redrob_project — Redrob Candidate Ranker
 
+Rank the top 100 of a 100,000-candidate pool against a Senior AI Engineer JD.
+Submission is a single CSV. CPU-only, ≤ 5 min wall-clock at ranking runtime,
+≤ 16 GB RAM, no network during ranking.
 
+Built per `docs/project_docs/EXCEUTION_PLAN.md` (canonical spec) and
+`docs/project_docs/PHASED_BUILD_PLAN.md` (build sequence). Test reports per
+phase in `docs/project_docs/P[N]_TEST_REPORT.md`.
 
-## Getting started
+## Quick start
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+### Local dev (Python 3.11)
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+```bash
+py -3.11 -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
 
-## Add your files
+# 50-sample end-to-end (offline, no network):
+.\.venv\Scripts\python -m src.precompute --candidates data/samples/sample_candidates.json --output artifacts/sample
+.\.venv\Scripts\python -m src.rank       --candidates data/samples/sample_candidates.json --cache artifacts/sample --out outputs/sample_submission.csv --top-n 100
+```
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+### Full 100K pool (offline precompute, then run)
+
+```bash
+# Precompute (uncapped per submission_spec §10.3; ~60 min on a 100K pool):
+python -m src.precompute --candidates data/originals/candidates.jsonl --output artifacts/
+
+# Rank the top 100 (≤ 5 min on CPU; the hard constraint):
+python -m src.rank --candidates data/originals/candidates.jsonl --cache artifacts/ --out outputs/submission.csv --top-n 100
+```
+
+### Docker (offline, sandbox-compatible)
+
+```bash
+docker build -t redrob-ranker .
+docker run --rm --network none \
+    -v ${PWD}/data:/work/data \
+    -v ${PWD}/outputs:/work/outputs \
+    redrob-ranker \
+    python -m src.rank --candidates /work/data/candidates.jsonl \
+                           --cache /work/artifacts \
+                           --out /work/outputs/submission.csv
+```
+
+The `Dockerfile` vendors the `all-MiniLM-L6-v2` model into
+`models/all-MiniLM-L6-v2/` so the image runs offline. The
+`src/rank.py` no-network guard (overrides `socket.socket` at import time)
+fails loudly if anything tries to make a network call during ranking.
+
+## Hard constraints (submission_spec §3)
+
+- **CPU-only** at ranking runtime. No GPU.
+- **≤ 5 min** wall-clock for the full-100K ranking step. Precompute is uncapped.
+- **≤ 16 GB RAM.**
+- **No network** at ranking runtime. No hosted LLM, no API calls.
+- **No LLM at runtime.** All ML/embedding work is offline, dev-time only.
+
+## Scoring
+
+The hidden ground truth is a tier-based score:
+`composite = 0.50·NDCG@10 + 0.30·NDCG@50 + 0.15·MAP + 0.05·P@10`.
+NDCG@10 is **half the score** — the top-10 is the single highest-leverage
+band to get right.
+
+## Architecture
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/vietikplay/redrob_project.git
-git branch -M main
-git push -uf origin main
+fit_score = 0.45·s_role_fit + 0.25·s_skill + 0.15·s_exp
+          + 0.10·s_edu + 0.05·s_loc
+final     = fit_score × M_behavior × P_penalty
 ```
 
-## Integrate with your tools
+- `s_role_fit` (DOMINANT): multi-query dense cosine + lexical match, top-K-mean
+  pooled, recency-weighted. Reads `career_history[].description`, NOT
+  `current_title` (titles are scrambled vs descriptions in the data —
+  measured 1,249/3,000 mismatches).
+- `M_behavior ∈ [0.5, 1.1]`: narrow-band multiplier on the universally-
+  populated signals (last_active_date, recruiter_response_rate,
+  interview_completion_rate).
+- `P_penalty`: honeypot (×0.01) + 5 non-honeypot gates (consulting_only,
+  research_only, no_recent_code, domain_mismatch, langchain_only_junior)
+  combined as `min(non_hp) × Π(other non_hp)^0.5` with a single
+  calibratable `p_scale` knob.
 
-* [Set up project integrations](https://gitlab.com/vietikplay/redrob_project/-/settings/integrations)
+Two-stage split (allowed by spec §10.3 — only the *ranking step* must
+fit in ≤ 5 min):
 
-## Collaborate with your team
+- **Offline (uncapped)**: embed JD-intent + candidate career descriptions
+  with `all-MiniLM-L6-v2`; cache vectors.
+- **Runtime (≤ 5 min hard)**: `np.load` cached vectors → cosine → feature
+  math → sort → write 100 rows.
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Project layout
 
-## Test and Deploy
+```
+config/                  scoring_config.yaml (single source of truth) + frozen JD-intent embeddings
+data/samples/            50-sample dev set (sample_candidates.json)
+data/originals/          full 100K pool (candidates.jsonl) — gitignored
+docs/                    reference_docs (spec/JD/signals), project_docs (plan/test reports)
+models/all-MiniLM-L6-v2/ vendored model weights (P7; ~91 MB)
+src/                     production code: config_loader, data_loader, jd_embedding, features/*,
+                         honeypot, disqualifiers, scoring, precompute, retrieve, rank, reasoning
+scripts/calibrate.py     P5 calibration driver
+tests/                   pytest suite: test_p0..p7 + test_anti_keyword
+artifacts/               precomputed embeddings (gitignored except small sample/)
+outputs/                 submission CSVs (gitignored)
+submission_metadata.yaml spec-required metadata
+Dockerfile               P7 offline-reproducible image
+```
 
-Use the built-in continuous integration in GitLab.
+## Tests
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```bash
+pytest tests/ -q           # 158 tests, ~75s on 8-core
+```
 
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+The suite covers P0–P7 and the anti-keyword regression guard.
+The full-100K latency test is opt-in (`RUN_P4_FULL=1`) because the
+precompute pass takes minutes on the production file.

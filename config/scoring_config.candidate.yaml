@@ -1,0 +1,271 @@
+weights:
+  role_fit: 0.4764705235294765
+  skill: 0.2647057352942647
+  experience: 0.15882384117615883
+  education: 0.04999995000005001
+  location: 0.04999995000005001
+role_fit:
+  w_dense: 0.8
+  w_lex: 0.2
+  pool: topk_mean
+  pool_k: 2
+  duration_weight: true
+  recency_half_life_months: 36
+  min_desc_chars: 40
+  intent_queries:
+  - built and deployed production retrieval and ranking systems for real users
+  - recommendation, search, or recsys at a product company (not consulting)
+  - 'evaluation frameworks for ranking: NDCG, MRR, MAP, offline-to-online'
+  - embeddings and vector databases used in production at scale
+retrieve:
+  k: 1500
+  second_chance_threshold: 0.7
+  second_chance_max: 500
+experience:
+  ideal_min_yrs: 6.0
+  ideal_max_yrs: 8.0
+  acceptable_min_yrs: 4.0
+  acceptable_max_yrs: 12.0
+  hard_min_yrs: 2.0
+education:
+  tier_scores:
+    tier_1: 1.0
+    tier_2: 0.75
+    tier_3: 0.5
+    tier_4: 0.25
+    unknown: 0.3
+  cgpa:
+    min_threshold: 7.0
+    recruiter_max: 10.0
+    below_threshold_scale: 0.14
+  relevant_fields:
+  - Computer Science
+  - Artificial Intelligence
+  - Machine Learning
+  - Data Science
+  - Information Technology
+  - Statistics
+  - Mathematics
+  - Electronics
+  - Computer Engineering
+  relevant_field_bonus: 1.0
+  irrelevant_field_penalty: 0.7
+skills:
+  endorse_floor: 30
+  skill_synonyms:
+    Retrieval-Augmented Generation: RAG
+    Retrieval Augmented Generation: RAG
+    Vector DB: Vector Database
+    Vector Databases: Vector Database
+    Milvus: Vector Database
+    Pinecone: Vector Database
+    Weaviate: Vector Database
+    Qdrant: Vector Database
+    FAISS: Vector Database
+    Faiss: Vector Database
+    Elasticsearch: Vector Database
+    OpenSearch: Vector Database
+    Recommender Systems: Recommendation Systems
+    RecSys: Recommendation Systems
+    IR: Information Retrieval
+    Sentence Transformers: Embeddings
+    sentence-transformers: Embeddings
+    BGE: Embeddings
+    E5: Embeddings
+    Hugging Face: Transformers
+    HuggingFace: Transformers
+    LoRA: Fine-tuning LLMs
+    QLoRA: Fine-tuning LLMs
+    PEFT: Fine-tuning LLMs
+    Large Language Models: LLM
+    LLMs: LLM
+    scikit-learn: Scikit-learn
+    sklearn: Scikit-learn
+  jd_core_skills:
+  - name: Python
+    weight: 8
+  - name: Machine Learning
+    weight: 8
+  - name: Deep Learning
+    weight: 7
+  - name: NLP
+    weight: 9
+  - name: Information Retrieval
+    weight: 9
+  - name: Embeddings
+    weight: 9
+  - name: Vector Database
+    weight: 8
+  - name: RAG
+    weight: 8
+  - name: LangChain
+    weight: 5
+  - name: LLM
+    weight: 7
+  - name: Fine-tuning LLMs
+    weight: 7
+  - name: Recommendation Systems
+    weight: 9
+  - name: Search
+    weight: 8
+  - name: Ranking
+    weight: 9
+  - name: NDCG
+    weight: 8
+  - name: MRR
+    weight: 7
+  - name: MAP
+    weight: 7
+  - name: Spark
+    weight: 6
+  - name: Airflow
+    weight: 5
+  - name: SQL
+    weight: 6
+  - name: PyTorch
+    weight: 7
+  - name: TensorFlow
+    weight: 6
+  - name: Scikit-learn
+    weight: 6
+  - name: Transformers
+    weight: 7
+  - name: MLflow
+    weight: 6
+  - name: Weights & Biases
+    weight: 5
+  - name: BentoML
+    weight: 5
+  - name: FastAPI
+    weight: 5
+  - name: Docker
+    weight: 5
+  - name: Kubernetes
+    weight: 4
+  - name: AWS
+    weight: 5
+  - name: GCP
+    weight: 5
+  - name: Azure
+    weight: 5
+  noise_skills:
+  - Photoshop
+  - Illustrator
+  - Figma
+  - PowerPoint
+  - Excel
+  - SEO
+  - Content Writing
+  - Marketing
+  - Sales
+  - Accounting
+  - Six Sigma
+  - SAP
+  - Tailwind
+  - Redux
+  - Angular
+  - React
+location:
+  match_mode: substring
+  preferred_cities:
+  - Noida
+  - Pune
+  also_welcome_cities:
+  - Hyderabad
+  - Mumbai
+  - Delhi
+  preferred_score: 1.0
+  also_welcome_score: 0.85
+  willing_to_relocate_score: 0.7
+  other_india_score: 0.5
+  outside_india_score: 0.2
+behavior:
+  recency_thresholds:
+    very_active_days: 30
+    active_days: 90
+    moderate_days: 180
+    stale_days: 365
+    inactive_score: 0.1
+  open_to_work_bonus: 0.1
+  response_rate_weight: 0.3
+  interview_completion_weight: 0.2
+  notice_period:
+    sub_30_bonus: 0.05
+    sub_60_neutral: 0.0
+    above_90_penalty: -0.05
+  min_multiplier: 0.5
+  max_multiplier: 1.1
+  neutral_base: 0.85
+penalties:
+  p_scale: 1.5
+  honeypot:
+    score: 0.01
+  consulting_only:
+    score: 0.15
+    consulting_companies:
+    - TCS
+    - Infosys
+    - Wipro
+    - Accenture
+    - Cognizant
+    - Capgemini
+    - HCL
+    - Tech Mahindra
+    - Mindtree
+    - Mphasis
+    consulting_industries:
+    - IT Services
+    consulting_company_sizes:
+    - 1001-5000
+    - 5001-10000
+    - 10001+
+  research_only:
+    score: 0.2
+    research_industries:
+    - Education
+    - Research
+  no_recent_code:
+    score: 0.25
+    lookback_months: 18
+  domain_mismatch:
+    score: 0.3
+    mismatch_domains:
+    - Computer Vision
+    - Speech Recognition
+    - Robotics
+    - TTS
+    - Image Classification
+    - Object Detection
+    - GANs
+  langchain_only_junior:
+    score: 0.4
+    soft_demotion: 0.7
+    junior_exp_months: 12
+    pre_llm_cutoff_year: 2022
+role_affinity:
+  Senior AI Engineer: 1.0
+  AI Engineer: 0.95
+  ML Engineer: 0.95
+  Machine Learning Engineer: 0.95
+  Research Scientist: 0.7
+  Data Scientist: 0.8
+  Applied Scientist: 0.85
+  NLP Engineer: 0.9
+  Search Engineer: 0.9
+  Ranking Engineer: 0.9
+  Recommendation Systems Engineer: 0.9
+  Backend Engineer: 0.5
+  Data Engineer: 0.45
+  Analytics Engineer: 0.4
+  Software Engineer: 0.45
+  Full Stack Engineer: 0.3
+  Business Analyst: 0.1
+  Marketing Manager: 0.05
+  Operations Manager: 0.05
+  Product Manager: 0.15
+  default: 0.2
+honeypot_detection:
+  experience_mismatch_tolerance_months: 12
+  max_zero_duration_expert_skills: 2
+  education_year_sanity: true
+  min_company_founding_year: 1900

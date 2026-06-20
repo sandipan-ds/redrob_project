@@ -6,7 +6,7 @@ intent_queries:
 - recommendation, search, or recsys at a product company (not consulting)
 - 'evaluation frameworks for ranking: NDCG, MRR, MAP, offline-to-online'
 - embeddings and vector databases used in production at scale
-model: all-MiniLM-L6-v2
+model: C:\Users\sandi\Desktop\ML Working Folder\redrob_project\models\all-MiniLM-L6-v2
 normalized: true
 note: Dev-time only. rank.py loads this at runtime (no model).
 num_candidates: 50

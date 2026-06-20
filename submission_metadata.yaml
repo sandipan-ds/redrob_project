@@ -23,7 +23,7 @@ github_repo: ""   # Fill in before submission
 
 sandbox_link: ""  # Fill in before submission (HF Spaces / Streamlit / Colab)
 
-reproduce_command: "python rank.py --candidates ./candidates.jsonl --out ./submission.csv"
+reproduce_command: "docker build -t redrob-ranker . && docker run --rm --network none -v ${PWD}/data:/work/data -v ${PWD}/outputs:/work/outputs redrob-ranker python -m src.rank --candidates /work/data/candidates.jsonl --cache /work/artifacts --out /work/outputs/submission.csv"
 
 # ============================================================================
 # Compute environment
@@ -34,10 +34,12 @@ compute:
   ram_gb: 24
   python_version: "3.11"
   os: "Windows 11 64-Bit"
-  uses_gpu_for_inference: false         # Must be false
-  has_network_during_ranking: false     # Must be false
+  uses_gpu_for_inference: false         # MUST be false (spec §3)
+  has_network_during_ranking: false     # MUST be false (spec §3)
   pre_computation_required: true        # Embeddings precomputed offline
-  pre_computation_time_minutes: 0       # TBD after P4
+  pre_computation_time_minutes: ~60     # Estimated for full 100K (uncapped per §10.3);
+                                        # dev 50-sample precompute runs in ~2s
+  ranking_step_time_minutes: 0.3        # 50-sample; 100K target < 5 min (§7.1)
 
 # ============================================================================
 # AI tools declaration
@@ -70,5 +72,5 @@ declarations:
   read_submission_spec: true
   code_is_original_work: true
   no_collusion: true
-  honeypot_check_done: false      # Set true after P2 is complete
-  reproduction_tested: false      # Set true after P7 is complete
+  honeypot_check_done: true       # P2 complete — honeypot + 6 disqualifier gates + softening
+  reproduction_tested: true       # P7 complete — Dockerfile + vendored model + no-network guard
