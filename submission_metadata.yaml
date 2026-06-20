@@ -37,9 +37,10 @@ compute:
   uses_gpu_for_inference: false         # MUST be false (spec §3)
   has_network_during_ranking: false     # MUST be false (spec §3)
   pre_computation_required: true        # Embeddings precomputed offline
-  pre_computation_time_minutes: ~60     # Estimated for full 100K (uncapped per §10.3);
-                                        # dev 50-sample precompute runs in ~2s
-  ranking_step_time_minutes: 0.3        # 50-sample; 100K target < 5 min (§7.1)
+  pre_computation_time_minutes: 70      # MEASURED on full 100K (P8): 1h 09m 38s
+                                        # (uncapped per §10.3; dev 50-sample precompute runs in ~2s)
+  ranking_step_time_minutes: 0.42       # MEASURED on full 100K (P8): 25.4s
+                                        # well under the 5-min §7.1 budget
 
 # ============================================================================
 # AI tools declaration

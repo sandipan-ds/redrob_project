@@ -1,5 +1,5 @@
 embedding_dim: 384
-generated_date: '2026-06-20'
+generated_date: '2026-06-21'
 input_path: C:\Users\sandi\Desktop\ML Working Folder\redrob_project\data\samples\sample_candidates.json
 intent_queries:
 - built and deployed production retrieval and ranking systems for real users
