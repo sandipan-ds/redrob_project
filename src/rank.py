@@ -187,25 +187,57 @@ def rank(
             {
                 "candidate_id": cid,
                 "score": float(score),
-                "reasoning": _minimal_reasoning(profile, breakdown),
+                "breakdown": breakdown,
+                "candidate": c,
             }
         )
 
     # ---- Sort: score desc, tie-break by candidate_id asc ----
     rows.sort(key=lambda r: (-r["score"], r["candidate_id"]))
 
-    # ---- Take top N and write CSV ----
+    # ---- Take top N and generate final reasoning (rank-band aware) ----
     top = rows[:top_n]
+    from src.reasoning import generate_reasoning as _gen_final
+    for r_idx, r in enumerate(top, start=1):
+        r["reasoning"] = _gen_final(
+            r["candidate"], r["breakdown"], rank=r_idx, cfg=cfg,
+        )
+
+    # Strip the heavy fields before writing.
+    for r in top:
+        del r["candidate"]
+        del r["breakdown"]
+
     _write_csv(out_path, top)
     logger.info("Wrote %d rows to %s", len(top), out_path)
 
 
+def _generate_reasoning(
+    candidate: dict, breakdown: dict, rank: int | None, cfg: dict
+) -> str:
+    """
+    Wrapper for the P6 deterministic reasoning generator.
+
+    `rank` is not yet known at the time of the first call (we generate
+    reasoning per-candidate during the rerank, before sorting). The P6
+    generator uses rank to pick the rank band (top / mid / bottom). We
+    generate a neutral mid-band reasoning here and then re-generate
+    after sorting when the final rank is known. This avoids the cost
+    of a second pass while keeping the rank-band signal correct.
+    """
+    from src.reasoning import generate_reasoning as _gen
+    # Use rank=50 (mid band) as a neutral placeholder. The final
+    # reasoning is regenerated below after sorting.
+    placeholder_rank = rank if rank is not None else 50
+    return _gen(candidate, breakdown, placeholder_rank, cfg)
+
+
 def _minimal_reasoning(profile: dict, breakdown: dict) -> str:
     """
-    A 1-sentence placeholder for the reasoning column. P6 replaces this
-    with the deterministic template-driven generator. The output must
-    be a non-empty string and must contain only values present in the
-    profile (anti-hallucination — spec §3 reasoning checks).
+    Kept for backward compatibility / emergency fallback. The P6
+    generator is preferred; this is the trivial name-templated version
+    (rejected by the §6.5 "no name-templating" rule but acceptable
+    as a never-used fallback).
     """
     yoe = profile.get("years_of_experience", 0)
     title = (profile.get("current_title") or "").strip()

@@ -1,51 +1,51 @@
 candidate_id,rank,score,reasoning
-CAND_0000031,1,0.611866,"Recommendation Systems Engineer, 6.0 yrs."
-CAND_0000042,2,0.347068,"HR Manager, 5.0 yrs."
-CAND_0000034,3,0.262708,"Business Analyst, 14.5 yrs."
-CAND_0000022,4,0.246894,"Mechanical Engineer, 1.1 yrs."
-CAND_0000020,5,0.101430,"Mechanical Engineer, 6.3 yrs."
-CAND_0000026,6,0.096782,"Graphic Designer, 6.8 yrs."
-CAND_0000019,7,0.095097,"Project Manager, 6.5 yrs."
-CAND_0000038,8,0.093759,"Java Developer, 6.7 yrs."
-CAND_0000048,9,0.093193,"Mobile Developer, 9.7 yrs."
-CAND_0000001,10,0.093000,"Backend Engineer, 6.9 yrs."
-CAND_0000035,11,0.091874,"Full Stack Developer, 4.3 yrs."
-CAND_0000007,12,0.089584,"Civil Engineer, 5.5 yrs."
-CAND_0000046,13,0.087232,"Mechanical Engineer, 7.8 yrs."
-CAND_0000030,14,0.087151,"Marketing Manager, 10.0 yrs."
-CAND_0000033,15,0.085657,"Graphic Designer, 8.6 yrs."
-CAND_0000029,16,0.083081,"Business Analyst, 7.2 yrs."
-CAND_0000016,17,0.082226,"Accountant, 5.3 yrs."
-CAND_0000004,18,0.081008,"Marketing Manager, 3.8 yrs."
-CAND_0000050,19,0.080421,"Business Analyst, 13.5 yrs."
-CAND_0000044,20,0.080416,"Frontend Engineer, 5.7 yrs."
-CAND_0000045,21,0.079427,"Project Manager, 12.2 yrs."
-CAND_0000002,22,0.077153,"Operations Manager, 12.5 yrs."
-CAND_0000041,23,0.074768,"Operations Manager, 13.7 yrs."
-CAND_0000049,24,0.073458,"Mechanical Engineer, 11.8 yrs."
-CAND_0000018,25,0.072370,"Frontend Engineer, 6.6 yrs."
-CAND_0000009,26,0.067902,"Mechanical Engineer, 11.0 yrs."
-CAND_0000021,27,0.067100,"Project Manager, 14.5 yrs."
-CAND_0000006,28,0.066223,"Business Analyst, 6.0 yrs."
-CAND_0000039,29,0.065956,"Marketing Manager, 3.9 yrs."
-CAND_0000023,30,0.064400,"Software Engineer, 3.7 yrs."
-CAND_0000011,31,0.058036,"QA Engineer, 2.0 yrs."
-CAND_0000032,32,0.054839,".NET Developer, 8.1 yrs."
-CAND_0000017,33,0.054585,"Accountant, 12.3 yrs."
-CAND_0000013,34,0.052128,"Civil Engineer, 1.1 yrs."
-CAND_0000014,35,0.051176,"Frontend Engineer, 8.4 yrs."
-CAND_0000025,36,0.047984,"Frontend Engineer, 7.3 yrs."
-CAND_0000005,37,0.045899,"Accountant, 11.0 yrs."
-CAND_0000037,38,0.040565,"Business Analyst, 14.3 yrs."
-CAND_0000015,39,0.039495,"Software Engineer, 5.4 yrs."
-CAND_0000040,40,0.039310,"Customer Support, 1.6 yrs."
-CAND_0000043,41,0.039287,"Cloud Engineer, 8.3 yrs."
-CAND_0000036,42,0.037590,"Project Manager, 11.3 yrs."
-CAND_0000010,43,0.034634,"Data Engineer, 4.6 yrs."
-CAND_0000024,44,0.028570,"HR Manager, 7.5 yrs."
-CAND_0000027,45,0.026376,"DevOps Engineer, 3.9 yrs."
-CAND_0000012,46,0.023126,"Operations Manager, 1.1 yrs."
-CAND_0000008,47,0.019844,"Operations Manager, 3.6 yrs."
-CAND_0000047,48,0.016217,"Project Manager, 2.4 yrs."
-CAND_0000028,49,0.013530,"Operations Manager, 1.1 yrs."
-CAND_0000003,50,0.012967,"Customer Support, 1.1 yrs."
+CAND_0000031,1,0.611866,6 yrs; career-fit on Trained and shipped multiple ranking models for our; one concern: career is not centered on production ML at a product company.
+CAND_0000042,2,0.347068,5 yrs; career-fit on Content writing and SEO strategy for a tech-focused; one concern: career is not centered on production ML at a product company.
+CAND_0000034,3,0.262708,"14.5 yrs; career-fit on Business analyst at a consulting firm, working primarily; one concern: career is not centered on production ML at a product company."
+CAND_0000022,4,0.246894,1.1 yrs; career-fit on Content writing and SEO strategy for a tech-focused; one concern: career is not centered on production ML at a product company.
+CAND_0000020,5,0.101430,6.3 yrs experience — within the JD ideal band; Content writing and SEO strategy for a tech-focused; one concern: limited production tenure.
+CAND_0000026,6,0.096782,(6.8 yrs) — Content writing and SEO strategy for a tech-focused; one concern: limited production tenure.
+CAND_0000019,7,0.095097,"6.5 yrs experience — within the JD ideal band; Business analyst at a consulting firm, working primarily; one concern: limited production tenure."
+CAND_0000038,8,0.093759,6.7 yrs experience — within the JD ideal band; Java backend development at a large enterprise —; one concern: limited production tenure.
+CAND_0000048,9,0.093193,(9.7 yrs) — Android mobile development using Java and (more recently); one concern: limited production tenure.
+CAND_0000001,10,0.093000,(6.9 yrs) — Built and maintained data pipelines on Apache Airflow; one concern: limited production tenure.
+CAND_0000035,11,0.091874,Strong role-fit: career describes Full-stack web application development at a SaaS company.; one concern: career is not centered on production ML at a product company.
+CAND_0000007,12,0.089584,5.5 yrs experience — within the JD ideal band; Customer support team lead at a SaaS product.; one concern: limited production tenure.
+CAND_0000046,13,0.087232,7.8 yrs experience — within the JD ideal band; Marketing leadership role at a B2B SaaS company.; one concern: limited production tenure.
+CAND_0000030,14,0.087151,Strong role-fit: career describes Content writing and SEO strategy for a tech-focused; one concern: career is not centered on production ML at a product company.
+CAND_0000033,15,0.085657,"(8.6 yrs) — Business analyst at a consulting firm, working primarily; one concern: limited production tenure."
+CAND_0000029,16,0.083081,(7.2 yrs) — Marketing leadership role at a B2B SaaS company.; one concern: limited production tenure.
+CAND_0000016,17,0.082226,(5.3 yrs) — Enterprise sales of cloud software solutions into the; one concern: limited production tenure.
+CAND_0000004,18,0.081008,3.8 yrs; career-fit on Content writing and SEO strategy for a tech-focused; one concern: career is not centered on production ML at a product company.
+CAND_0000050,19,0.080421,"13.5 yrs, education; Senior accounting role at a mid-sized company —; one concern: education tier is not flagged as"
+CAND_0000044,20,0.080416,5.7 yrs experience — within the JD ideal band; Java backend development at a large enterprise —; one concern: limited production tenure.
+CAND_0000045,21,0.079427,"12.2 yrs; 12.2 yrs; response rate 62%, interview completeness 33%, notice 60 days."
+CAND_0000002,22,0.077153,role-fit: Content writing and SEO strategy for a tech-focused; but career is not centered on production ML at a product company.
+CAND_0000041,23,0.074768,role-fit: Marketing leadership role at a B2B SaaS company.; but career is not centered on production ML at a product company.
+CAND_0000049,24,0.073458,"11.8 yrs; 11.8 yrs; response rate 59%, interview completeness 56%, notice 120 days."
+CAND_0000018,25,0.072370,"6.6 yrs; 6.6 yrs; response rate 16%, interview completeness 70%, notice 120 days."
+CAND_0000009,26,0.067902,"11 yrs; 11 yrs; response rate 53%, interview completeness 54%, notice 150 days."
+CAND_0000021,27,0.067100,"14.5 yrs; career shows Business analyst at a consulting firm, working primarily, but but career is not centered on production ML at a product company."
+CAND_0000006,28,0.066223,"6 yrs; 6 yrs; response rate 12%, interview completeness 56%, notice 150 days."
+CAND_0000039,29,0.065956,role-fit: Brand design and creative direction at a consumer-products; but career is not centered on production ML at a product company.
+CAND_0000023,30,0.064400,"3.7 yrs; career shows Android mobile development using Java and (more recently), but but career is not centered on production ML at a product company."
+CAND_0000011,31,0.058036,"2 yrs; career shows Android mobile development using Java and (more recently), but but career is not centered on production ML at a product company."
+CAND_0000032,32,0.054839,"8.1 yrs; 8.1 yrs; response rate 69%, interview completeness 78%, notice 150 days."
+CAND_0000017,33,0.054585,"12.3 yrs; 12.3 yrs; response rate 27%, interview completeness 32%, notice 90 days."
+CAND_0000013,34,0.052128,"1.1 yrs; career shows Customer support team lead at a SaaS product., but but career is not centered on production ML at a product company."
+CAND_0000014,35,0.051176,"8.4 yrs; 8.4 yrs; response rate 80%, interview completeness 55%, notice 90 days."
+CAND_0000025,36,0.047984,"7.3 yrs; 7.3 yrs; response rate 74%, interview completeness 70%, notice 120 days."
+CAND_0000005,37,0.045899,"11 yrs; 11 yrs; response rate 37%, interview completeness 74%, notice 30 days."
+CAND_0000037,38,0.040565,"14.3 yrs; career shows Business analyst at a consulting firm, working primarily, but but career is not centered on production ML at a product company."
+CAND_0000015,39,0.039495,"5.4 yrs; 5.4 yrs; response rate 32%, interview completeness 72%, notice 90 days."
+CAND_0000040,40,0.039310,role-fit: Enterprise sales of cloud software solutions into the; but career is not centered on production ML at a product company.
+CAND_0000043,41,0.039287,"8.3 yrs; 8.3 yrs; response rate 4%, interview completeness 72%, notice 120 days."
+CAND_0000036,42,0.037590,"11.3 yrs; 11.3 yrs; response rate 40%, interview completeness 78%, notice 60 days."
+CAND_0000010,43,0.034634,"4.6 yrs; 4.6 yrs; response rate 40%, interview completeness 53%, notice 120 days."
+CAND_0000024,44,0.028570,"7.5 yrs; 7.5 yrs; response rate 78%, interview completeness 72%, notice 60 days."
+CAND_0000027,45,0.026376,"3.9 yrs; career shows Java backend development at a large enterprise —, but but career is not centered on production ML at a product company."
+CAND_0000012,46,0.023126,role-fit: Senior accounting role at a mid-sized company —; but career is not centered on production ML at a product company.
+CAND_0000008,47,0.019844,"3.6 yrs; education; Marketing leadership role at a B2B SaaS company., but but education tier is not flagged as"
+CAND_0000047,48,0.016217,role-fit: Operations management role at a logistics company. Owned; but career is not centered on production ML at a product company.
+CAND_0000028,49,0.013530,role-fit: Brand design and creative direction at a consumer-products; but career is not centered on production ML at a product company.
+CAND_0000003,50,0.012967,"1.1 yrs; career shows Business analyst at a consulting firm, working primarily, but but career is not centered on production ML at a product company."
