@@ -310,8 +310,20 @@ penalties:
       - "10001+"
 
   # Pure research only (no production ML code)
+  # §2.5.c conjunctive: fires ONLY if ALL three hold —
+  #   (1) no production-lexicon match in role_fit_text (broad synonym set),
+  #   (2) no product-company tenure (every stint's industry is in
+  #       consulting_industries ∪ research_industries — i.e. consulting OR academic,
+  #       never a for-profit product co),
+  #   (3) explicit research framing in title or descriptions.
+  # Otherwise → mild soft demotion, NOT a gate.
   research_only:
     score: 0.20
+    # Industries that count as "not a product company" for condition (2).
+    # A stint in any other industry is a product-co stint → condition (2) fails.
+    research_industries:
+      - "Education"
+      - "Research"
 
   # No production code in last 18 months
   no_recent_code:
