@@ -285,11 +285,10 @@ penalties:
     score: 0.01   # Effectively removes from top-100 (never scaled)
 
   # Consulting-only career (no prior product-company experience)
-  # TODO §2.5.j (P2): generalize beyond this name list — also treat
-  #   current_industry == "IT Services" + large company_size bands as a consulting
-  #   proxy, and require a real "prior product-company tenure" exemption check
-  #   (any career_history entry with industry != "IT Services"). Keep this list as a
-  #   high-precision booster, not the sole signal. Config below is the PRE-§2.5.j state.
+  # §2.5.j generalized detector: fire if consulting-only by EITHER signal —
+  #   (a) every career_history[].company ∈ consulting_companies (name list, high-precision), OR
+  #   (b) every stint has industry ∈ consulting_industries AND company_size ∈ consulting_company_sizes.
+  # EXEMPTION: if ANY career_history[] entry has industry NOT in consulting_industries → does not fire.
   consulting_only:
     score: 0.15
     consulting_companies:
@@ -303,6 +302,12 @@ penalties:
       - "Tech Mahindra"
       - "Mindtree"
       - "Mphasis"
+    consulting_industries:           # §2.5.j generalized proxy
+      - "IT Services"
+    consulting_company_sizes:        # large-band = consulting proxy (small/mid product cos exempt)
+      - "1001-5000"
+      - "5001-10000"
+      - "10001+"
 
   # Pure research only (no production ML code)
   research_only:
@@ -326,13 +331,16 @@ penalties:
       - "GANs"
 
   # LangChain-only AI experience < 12 months without pre-LLM ML production
-  # TODO §2.5.j (P2): demote from a hard ×0.40 gate to a MILD soft feature unless ALL
-  #   conjunctive conditions hold (junior total exp AND no pre-2022 ML AND LangChain is
-  #   the only AI signal). A real junior is already demoted by role-fit + the exp band,
-  #   so this gate risks false-firing on a senior who recently added LangChain.
-  #   Config below is the PRE-§2.5.j state.
+  # §2.5.j demoted: NOT a hard gate by default. Apply the ×0.40 penalty ONLY if ALL three
+  #   conjunctive conditions hold — (1) total AI exp < 12 months, (2) no pre-2022 ML production,
+  #   (3) LangChain is the ONLY AI signal. Otherwise → mild soft demotion.
+  #   A real junior is already demoted by role-fit + the exp band; a hard gate risks
+  #   false-firing on a senior who recently added LangChain.
   langchain_only_junior:
-    score: 0.40
+    score: 0.40          # full penalty — applied only when all 3 conjunctive conditions hold
+    soft_demotion: 0.70  # mild multiplicative demotion when not all conditions hold (not a gate)
+    junior_exp_months: 12      # condition (1): total AI experience threshold
+    pre_llm_cutoff_year: 2022  # condition (2): pre-LLM ML must be before this year
 
 # -----------------------------------------------------------------------------
 # Role affinity matrix

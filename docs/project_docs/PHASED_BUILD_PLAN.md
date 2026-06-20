@@ -92,10 +92,13 @@ Implement the structural-impossibility checks (thresholds from `cfg["honeypot_de
 Return `(is_honeypot, reasons)`. **Do not special-case the 4 sample honeypots** — keep rules general.
 
 ### `src/disqualifiers.py` — `compute_penalty(candidate, cfg, role_fit_text) -> tuple[float, list[str]]`
-Multiplicative gates from `cfg["penalties"]` (stackable — multiply them together):
-- **honeypot** → `cfg.penalties.honeypot.score` (≈0.01) if `detect_honeypot` true.
-- **consulting_only** → if **every** `career_history[].company` ∈ `consulting_companies` (no product-co
-  stint ever) → `consulting_only.score`.
+Multiplicative gates from `cfg["penalties"]`, combined per §2.5.d (NOT a raw product — see below):
+- **honeypot** → `cfg.penalties.honeypot.score` (≈0.01) if `detect_honeypot` true. Always applied at full strength.
+- **consulting_only** → **generalized (EXCEUTION_PLAN §2.5.j):** fire if the candidate's career is
+  consulting-only by **either** signal — (a) **every** `career_history[].company` ∈ `consulting_companies`
+  (the name list, high-precision booster), **or** (b) **every** stint has `industry == "IT Services"` AND
+  `company_size` in the large-band set. **Exemption:** if **any** `career_history[]` entry has
+  `industry != "IT Services"` (prior product-company tenure), the gate does **not** fire. → `consulting_only.score`.
 - **research_only** → **conjunctive (EXCEUTION_PLAN §2.5.c):** fire **only if all three** hold — (1) no
   production-lexicon match using the *broad* synonym set ("shipped/deployed/launched/rolled out/served/in
   production/A‑B/inference service/online" + retrieval/ranking/recsys/search), **and** (2) no
@@ -106,7 +109,12 @@ Multiplicative gates from `cfg["penalties"]` (stackable — multiply them togeth
   *(Note: `github_activity_score` is sentinel `-1` for many → low-coverage; lean on descriptions.)*
 - **domain_mismatch** → primary skills/descriptions are CV/speech/robotics (`mismatch_domains`) with **no**
   NLP/IR evidence → `domain_mismatch.score`.
-- **langchain_only_junior** → LangChain present, total exp < 12mo of AI, no pre-2022 ML → `langchain_only_junior.score`.
+- **langchain_only_junior** → **demoted (EXCEUTION_PLAN §2.5.j):** NOT a hard gate by default. Apply the
+  ×0.40 penalty **only if all three** conjunctive conditions hold — (1) total AI experience < 12 months,
+  **and** (2) no pre-2022 ML production experience, **and** (3) LangChain is the candidate's **only** AI
+  signal (no other ML/IR/recsys skills or description evidence). Otherwise → mild soft demotion only.
+  Rationale: a real junior is already demoted by role-fit + the exp band; a hard gate risks false-firing
+  on a senior who recently added LangChain.
 
 **Penalty combination (EXCEUTION_PLAN §2.5.d, §2.5.e):** do **not** multiply all gates raw. Apply the
 **worst (smallest) gate at full strength** and **soften the rest geometrically**, then apply a single
@@ -124,7 +132,10 @@ Return `(P_penalty, reasons)`, defaulting to `1.0` when no gate fires.
 - All **sample honeypots** in `data/samples` are flagged `is_honeypot == True`.
 - **Zero false-kills** on the clear-fit synthetic profiles (build 3–5 obviously-good candidates → all
   return `penalty == 1.0`, `is_honeypot == False`).
-- A consulting-only synthetic → penalty ≈ `0.15`; a research-only → ≈ `0.20`; stacked → product of both.
+- A consulting-only synthetic → penalty ≈ `0.15`; a research-only → ≈ `0.20`; **stacked →
+  `min(gates) × √(other) ≈ 0.15 × √0.20 ≈ 0.067`** (the §2.5.d softened combination, NOT the raw `0.03` product).
+- The `consulting_only` exemption fires when a synthetic has any prior product-co stint (industry != "IT Services").
+- `langchain_only_junior` does NOT fire on a senior who recently added LangChain but has pre-2022 ML experience.
 - Sentinels do not trigger any gate.
 ```
 pytest tests/test_p2.py -v
@@ -148,27 +159,35 @@ Implements the **blended, multi-query, recency-weighted** role signal (EXCEUTION
 - **`s_dense` (multi-query, top-K mean):** `jd_intents` is a small set of frozen intent vectors
   ("production retrieval/ranking", "recsys/search at a product company", "eval frameworks NDCG/MRR/MAP",
   "embeddings + vector DB in prod"). Per candidate description, take **max cosine over the query set**;
-  then pool across descriptions with **top-K mean** (`cfg.role_fit.pool="topk_mean"`, `K=2`), optionally
-  weighting each description by `duration_months`. (Pure `max` is the fallback when one description.)
+  then pool across descriptions with **top-K mean** (`cfg.role_fit.pool="topk_mean"`, `K=2`). (Pure `max`
+  is the fallback when a candidate has one description.)
 - **`s_lex` (production-evidence lexical, BM25/TF-IDF):** generalized synonym lexicon
   ("shipped/deployed/launched/rolled out/served/in production/A‑B/inference service/online" + retrieval/
   ranking/recsys/search terms) matched against the descriptions. Catches engineers whose phrasing differs
   from our guessed words.
 - **Blend:** `s_role_fit = cfg.role_fit.w_dense·s_dense + cfg.role_fit.w_lex·s_lex` (defaults 0.7/0.3;
   both are calibrated knobs).
-- **Recency weighting (§2.5.f):** weight each description's contribution by a recency factor from its
-  `start_date`/`end_date` (recent→1.0, old→decayed; half-life in `cfg.role_fit`). A 2024 ML stint > a
-  2018 ML stint followed by marketing.
-- **Thin/empty-description fallback (§2.5.h):** if concatenated description text is below a min length,
-  fall back to the role-affinity **title prior** (`config.role_affinity`) for this component — the single
-  justified use of the otherwise-demoted title lookup. Fallback, never a bonus.
+- **Per-description weighting (§2.5.f — ONE combined weight, not two):** each description *d* gets a
+  **single** weight `w_d = duration_norm(d) × recency_decay(d)`, where
+  `duration_norm = min(duration_months / 24, 1.0)` and
+  `recency_decay = 0.5 ** (months_since_end / cfg.role_fit.recency_half_life_months)`. The top-K mean is
+  the `w_d`-weighted mean of the K highest per-description cosines. This pins duration and recency into
+  one composition (avoids calibrating two entangled knobs — see `SYSTEM_DESIGN.md` §4.1.1). A 2024 ML stint
+  outweighs a 2018 ML stint followed by marketing.
+- **Thin/empty-description fallback (§2.5.h):** if concatenated description text is below
+  `cfg.role_fit.min_desc_chars`, fall back to the role-affinity **title prior** (`config.role_affinity`) for
+  this component — the single justified use of the otherwise-demoted title lookup. Fallback, never a bonus.
 - Output: clamped to [0, 1].
 
 > **Pre-freeze sanity check (do this in P3, §2.5.a / MINIMAX #9):** embed the few clearly-good sample
 > candidates and assert the `jd_intents` set points at them (high cosine) before locking the vectors.
 
 ### `skills.py` — `s_skill(candidate, cfg) -> float`
-- Match `skills[].name` against `cfg.skills.jd_core_skills` (weighted). Ignore `cfg.skills.noise_skills`.
+- **Synonym collapse FIRST (§5.1 / GLM-v2 #A4):** normalize each `skills[].name` to its canonical form
+  via `cfg.skills.skill_synonyms` (case-insensitive) **before** matching against `jd_core_skills`. This
+  prevents double-counting — a candidate listing both "RAG" and "Retrieval-Augmented Generation" scores the
+  canonical `RAG` skill **once**, not twice. Canonical names not in `jd_core_skills` are ignored.
+- Match canonical `skills[].name` against `cfg.skills.jd_core_skills` (weighted). Ignore `cfg.skills.noise_skills`.
 - **Endorsement curve:** linear 0 → `endorse_floor`, capped at the skill weight.
 - **Duration as trust multiplier** on proficiency claims.
 - Prefer **platform-verified** `skill_assessment_scores` over self-reported `proficiency`/`endorsements`.
@@ -186,8 +205,8 @@ Implements the **blended, multi-query, recency-weighted** role signal (EXCEUTION
 - Recency from `last_active_date` (`recency_thresholds`).
 - Weighted `recruiter_response_rate`, `interview_completion_rate`; `open_to_work` bonus; notice-period adj.
 - **Drop `github_activity_score` (EXCEUTION_PLAN §2.5.g):** sentinel `-1` for a large fraction → only
-  discriminates a self-selected subset. Lean on the universally-populated signals above. (Update
-  `criteria_map.md` §E to mark it ❌ dropped — low coverage.)
+  discriminates a self-selected subset. Lean on the universally-populated signals above.
+  (`criteria_map.md` §E already marks it ❌ dropped.)
 - **Sentinels (`-1`, `{}`) → contribute nothing; fall back to `neutral_base = 0.85`.** Clamp to `[min, max]`.
 
 ### `location.py` — `s_location(profile, signals, cfg) -> float`
@@ -196,7 +215,7 @@ Implements the **blended, multi-query, recency-weighted** role signal (EXCEUTION
 
 ### Exit test (`tests/test_p3.py`) — DoD
 - Each function returns a float in its declared range for the 50 sample candidates (no exceptions).
-- **Monotonicity sanity:** higher CGPA → higher edu score; 7 yrs → higher exp score than 1 yr; a max-pool
+- **Monotonicity sanity:** higher CGPA → higher edu score; 7 yrs → higher exp score than 1 yr; a top-K-mean
   ML description → higher role_fit than a marketing one (reuse P1 semantic pairs).
 - Sentinel inputs → behavior returns `neutral_base`, never < `min_multiplier`.
 ```
