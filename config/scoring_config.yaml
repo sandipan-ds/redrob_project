@@ -19,6 +19,26 @@ weights:
   location:   0.05   # Noida/Pune/relocation — soft tie-breaker only
 
 # -----------------------------------------------------------------------------
+# Role-fit feature internals (EXCEUTION_PLAN §2.5.a/b/f)
+# s_role_fit = w_dense*s_dense + w_lex*s_lex, recency-weighted, top-K-mean pooled.
+# w_dense / w_lex are calibrated macro knobs (P5).
+# -----------------------------------------------------------------------------
+role_fit:
+  w_dense: 0.70           # multi-query dense cosine (max over intent queries)
+  w_lex:   0.30           # production-evidence lexical (BM25/TF-IDF) match
+  pool: "topk_mean"       # one of: topk_mean | max
+  pool_k: 2               # top-K descriptions averaged when pool=topk_mean
+  duration_weight: true   # weight each description by duration_months
+  recency_half_life_months: 36   # decay old ML stints; recent work counts more
+  min_desc_chars: 40      # below this → thin-desc fallback to title prior (§2.5.h)
+  # Multi-query JD-intent set (frozen at dev-time; vectors live in config/*.npy)
+  intent_queries:
+    - "built and deployed production retrieval and ranking systems for real users"
+    - "recommendation, search, or recsys at a product company (not consulting)"
+    - "evaluation frameworks for ranking: NDCG, MRR, MAP, offline-to-online"
+    - "embeddings and vector databases used in production at scale"
+
+# -----------------------------------------------------------------------------
 # Experience band (soft, not a cliff)
 # Peak score at ideal_min–ideal_max; tapers outside
 # -----------------------------------------------------------------------------
@@ -69,6 +89,41 @@ education:
 skills:
   endorse_floor: 30   # Endorsements above this are capped
 
+  # Synonym-collapse map (EXECUTION_PLAN §5.1, GLM-v2 #A4).
+  # Normalize each skills[].name to its canonical form BEFORE scoring so equivalents
+  # are not double-counted (e.g. a candidate listing both "RAG" and
+  # "Retrieval-Augmented Generation" must score the canonical skill ONCE, not twice).
+  # Match case-insensitively; canonical name must exist in jd_core_skills.
+  skill_synonyms:
+    "Retrieval-Augmented Generation": "RAG"
+    "Retrieval Augmented Generation": "RAG"
+    "Vector DB": "Vector Database"
+    "Vector Databases": "Vector Database"
+    "Milvus": "Vector Database"
+    "Pinecone": "Vector Database"
+    "Weaviate": "Vector Database"
+    "Qdrant": "Vector Database"
+    "FAISS": "Vector Database"
+    "Faiss": "Vector Database"
+    "Elasticsearch": "Vector Database"
+    "OpenSearch": "Vector Database"
+    "Recommender Systems": "Recommendation Systems"
+    "RecSys": "Recommendation Systems"
+    "IR": "Information Retrieval"
+    "Sentence Transformers": "Embeddings"
+    "sentence-transformers": "Embeddings"
+    "BGE": "Embeddings"
+    "E5": "Embeddings"
+    "Hugging Face": "Transformers"
+    "HuggingFace": "Transformers"
+    "LoRA": "Fine-tuning LLMs"
+    "QLoRA": "Fine-tuning LLMs"
+    "PEFT": "Fine-tuning LLMs"
+    "Large Language Models": "LLM"
+    "LLMs": "LLM"
+    "scikit-learn": "Scikit-learn"
+    "sklearn": "Scikit-learn"
+
   # Core positive signals from JD (high weight)
   jd_core_skills:
     - name: "Python"
@@ -85,10 +140,8 @@ skills:
       weight: 9
     - name: "Vector Database"
       weight: 8
-    - name: "Retrieval-Augmented Generation"
-      weight: 8
     - name: "RAG"
-      weight: 8
+      weight: 8   # canonical; "Retrieval-Augmented Generation" collapses here (no double-count)
     - name: "LangChain"
       weight: 5   # Low — <12mo LangChain-only is a disqualifier
     - name: "LLM"
@@ -113,22 +166,16 @@ skills:
       weight: 5
     - name: "SQL"
       weight: 6
-    - name: "Milvus"
-      weight: 7
-    - name: "Pinecone"
-      weight: 7
-    - name: "Weaviate"
-      weight: 7
-    - name: "Faiss"
-      weight: 7
+    # NOTE: Milvus / Pinecone / Weaviate / Faiss collapse to "Vector Database" (w=8)
+    #       and "Hugging Face" collapses to "Transformers" via skill_synonyms above.
+    #       They are intentionally NOT listed standalone here, to avoid double-counting
+    #       (GLM-v3 #2). Do not re-add them as separate jd_core_skills entries.
     - name: "PyTorch"
       weight: 7
     - name: "TensorFlow"
       weight: 6
     - name: "Scikit-learn"
       weight: 6
-    - name: "Hugging Face"
-      weight: 7
     - name: "Transformers"
       weight: 7
     - name: "MLflow"
@@ -226,12 +273,23 @@ behavior:
 # -----------------------------------------------------------------------------
 # Penalty gates P_penalty (multiplicative kill-switches)
 # Applied BEFORE ranking. These are hard disqualifiers from the JD.
+# Combination (EXCEUTION_PLAN §2.5.d/e):
+#   non_hp gates pre-scaled by p_scale; P = honeypot? * min(non_hp) * prod(others)**0.5
+#   honeypot always applies at full strength.
+# p_scale is a CALIBRATED macro knob (P5) — it replaces the 6 previously-hidden
+# per-gate constants in the honest knob budget.
 # -----------------------------------------------------------------------------
 penalties:
+  p_scale: 1.0    # global severity scale for non-honeypot gates (calibrated)
   honeypot:
-    score: 0.01   # Effectively removes from top-100
+    score: 0.01   # Effectively removes from top-100 (never scaled)
 
   # Consulting-only career (no prior product-company experience)
+  # TODO §2.5.j (P2): generalize beyond this name list — also treat
+  #   current_industry == "IT Services" + large company_size bands as a consulting
+  #   proxy, and require a real "prior product-company tenure" exemption check
+  #   (any career_history entry with industry != "IT Services"). Keep this list as a
+  #   high-precision booster, not the sole signal. Config below is the PRE-§2.5.j state.
   consulting_only:
     score: 0.15
     consulting_companies:
@@ -268,6 +326,11 @@ penalties:
       - "GANs"
 
   # LangChain-only AI experience < 12 months without pre-LLM ML production
+  # TODO §2.5.j (P2): demote from a hard ×0.40 gate to a MILD soft feature unless ALL
+  #   conjunctive conditions hold (junior total exp AND no pre-2022 ML AND LangChain is
+  #   the only AI signal). A real junior is already demoted by role-fit + the exp band,
+  #   so this gate risks false-firing on a senior who recently added LangChain.
+  #   Config below is the PRE-§2.5.j state.
   langchain_only_junior:
     score: 0.40
 
