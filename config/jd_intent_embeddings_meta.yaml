@@ -1,0 +1,12 @@
+embedding_dim: 384
+generated_date: '2026-06-20'
+model: all-MiniLM-L6-v2
+normalized: true
+note: Frozen multi-query JD-intent set. s_dense = max cosine over rows. Regenerate
+  only when role_fit.intent_queries changes.
+num_queries: 4
+queries:
+- built and deployed production retrieval and ranking systems for real users
+- recommendation, search, or recsys at a product company (not consulting)
+- 'evaluation frameworks for ranking: NDCG, MRR, MAP, offline-to-online'
+- embeddings and vector databases used in production at scale

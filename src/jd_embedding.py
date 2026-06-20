@@ -68,7 +68,10 @@ JD_INTENT_TEXT = JD_INTENT_TEXT.strip()
 # Config
 # ---------------------------------------------------------------------------
 CONFIG_DIR = Path(__file__).parent.parent / "config"
-EMBEDDING_PATH = CONFIG_DIR / "jd_intent_embedding.npy"
+EMBEDDING_PATH = CONFIG_DIR / "jd_intent_embedding.npy"           # legacy single vector
+INTENT_SET_PATH = CONFIG_DIR / "jd_intent_embeddings.npy"          # multi-query set (Q, dim)
+INTENT_SET_META_PATH = CONFIG_DIR / "jd_intent_embeddings_meta.yaml"
+SCORING_CONFIG_PATH = CONFIG_DIR / "scoring_config.yaml"
 META_PATH = CONFIG_DIR / "jd_embedding_meta.yaml"
 
 # Model: lightweight, CPU-friendly, strong on technical text
@@ -196,6 +199,104 @@ def cosine_similarity_batch(
     return candidate_embeddings @ jd_embedding
 
 
+def _load_intent_queries() -> list[str]:
+    """Read the multi-query JD-intent strings from scoring_config.yaml (role_fit.intent_queries)."""
+    with SCORING_CONFIG_PATH.open("r", encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    queries = (cfg.get("role_fit") or {}).get("intent_queries") or []
+    if not queries:
+        raise ValueError(
+            "scoring_config.yaml role_fit.intent_queries is empty — "
+            "the multi-query role signal (EXECUTION_PLAN §2.5.a) needs at least one query."
+        )
+    return list(queries)
+
+
+def generate_jd_intent_set(
+    model_name: str = DEFAULT_MODEL,
+    output_path: Path = INTENT_SET_PATH,
+    meta_path: Path = INTENT_SET_META_PATH,
+    force: bool = False,
+) -> np.ndarray:
+    """
+    Generate and save the MULTI-QUERY JD-intent embedding set (EXECUTION_PLAN §2.5.a).
+
+    Each string in config.role_fit.intent_queries is embedded into one L2-normalized
+    row. Runtime `s_dense` = max cosine over these rows (per candidate description).
+
+    Returns:
+        float32 array of shape (Q, dim), L2-normalized rows.
+    """
+    if output_path.exists() and not force:
+        logger.info("JD-intent set already exists at %s. Use force=True to regenerate.", output_path)
+        return load_jd_intent_set(output_path)
+
+    queries = _load_intent_queries()
+    logger.info("Loading sentence-transformers model: %s", model_name)
+    from sentence_transformers import SentenceTransformer  # lazy import — not needed at runtime
+
+    model = SentenceTransformer(model_name)
+    logger.info("Encoding %d JD-intent queries...", len(queries))
+    embeddings = model.encode(queries, normalize_embeddings=True).astype(np.float32)
+    if embeddings.ndim == 1:  # single query edge case
+        embeddings = embeddings[np.newaxis, :]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(output_path, embeddings)
+    logger.info("Saved JD-intent set to %s (shape=%s)", output_path, embeddings.shape)
+
+    meta = {
+        "model": model_name,
+        "embedding_dim": int(embeddings.shape[1]),
+        "num_queries": int(embeddings.shape[0]),
+        "generated_date": str(date.today()),
+        "normalized": True,
+        "queries": queries,
+        "note": (
+            "Frozen multi-query JD-intent set. s_dense = max cosine over rows. "
+            "Regenerate only when role_fit.intent_queries changes."
+        ),
+    }
+    with meta_path.open("w", encoding="utf-8") as fh:
+        yaml.dump(meta, fh, default_flow_style=False, allow_unicode=True)
+    logger.info("Saved JD-intent set metadata to %s", meta_path)
+    return embeddings
+
+
+def load_jd_intent_set(path: Path = INTENT_SET_PATH) -> np.ndarray:
+    """Load the frozen multi-query JD-intent set (Q, dim) at runtime — no model, no network."""
+    if not path.exists():
+        raise FileNotFoundError(
+            f"JD-intent set not found at {path}. "
+            "Run: python -m src.jd_embedding  (offline, dev-time only)"
+        )
+    arr = np.load(path).astype(np.float32)
+    if arr.ndim == 1:
+        arr = arr[np.newaxis, :]
+    logger.debug("Loaded JD-intent set from %s (shape=%s)", path, arr.shape)
+    return arr
+
+
+def max_query_similarity(
+    candidate_embeddings: np.ndarray,
+    intent_set: np.ndarray,
+) -> np.ndarray:
+    """
+    s_dense per row: for each candidate embedding, the MAX cosine over all intent queries.
+
+    Args:
+        candidate_embeddings: (N, dim), L2-normalized.
+        intent_set:           (Q, dim), L2-normalized.
+
+    Returns:
+        (N,) float32 — max-over-queries cosine, the multi-query dense role signal.
+    """
+    sims = candidate_embeddings @ intent_set.T   # (N, Q)
+    return sims.max(axis=1)
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    # Keep the legacy single vector (back-compat) AND generate the multi-query set.
     generate_jd_embedding(force=False)
+    generate_jd_intent_set(force=False)

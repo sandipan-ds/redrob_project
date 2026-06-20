@@ -18,11 +18,15 @@ from src.jd_embedding import (
     JD_INTENT_TEXT,
     cosine_similarity_batch,
     load_jd_embedding,
+    load_jd_intent_set,
+    max_query_similarity,
 )
 
 CRITERIA_MAP = Path("docs/project_docs/criteria_map.md")
 EMBEDDING_PATH = Path("config/jd_intent_embedding.npy")
 META_PATH = Path("config/jd_embedding_meta.yaml")
+INTENT_SET_PATH = Path("config/jd_intent_embeddings.npy")
+INTENT_SET_META_PATH = Path("config/jd_intent_embeddings_meta.yaml")
 
 
 # ---------------------------------------------------------------------------
@@ -234,3 +238,55 @@ class TestCosineSimilarityBatch:
         random_vec /= np.linalg.norm(random_vec)
         scores = cosine_similarity_batch(random_vec[np.newaxis, :], jd_emb)
         assert abs(scores[0]) < 1e-4, f"Orthogonal vector should score ~0, got {scores[0]:.6f}"
+
+
+# ---------------------------------------------------------------------------
+# Multi-query JD-intent set (EXECUTION_PLAN §2.5.a) — the blended role signal
+# ---------------------------------------------------------------------------
+
+class TestJdIntentSet:
+    def test_intent_set_files_exist(self):
+        assert INTENT_SET_PATH.exists(), (
+            "Multi-query JD-intent set not found. Run: python -m src.jd_embedding"
+        )
+        assert INTENT_SET_META_PATH.exists(), "jd_intent_embeddings_meta.yaml not found"
+
+    def test_intent_set_is_2d_normalized_matching_config(self):
+        import yaml
+        arr = load_jd_intent_set()
+        assert arr.ndim == 2, f"Intent set must be (Q, dim), got shape {arr.shape}"
+        assert arr.dtype == np.float32
+        # rows L2-normalized
+        norms = np.linalg.norm(arr, axis=1)
+        assert np.allclose(norms, 1.0, atol=1e-5), f"Intent rows not unit-norm: {norms}"
+        # Q matches the number of intent_queries in scoring_config.yaml
+        cfg = yaml.safe_load(Path("config/scoring_config.yaml").read_text(encoding="utf-8"))
+        n_queries = len(cfg["role_fit"]["intent_queries"])
+        assert arr.shape[0] == n_queries, (
+            f"Intent set has {arr.shape[0]} rows but config lists {n_queries} queries — "
+            "regenerate with python -m src.jd_embedding"
+        )
+        assert arr.shape[1] == load_jd_embedding().shape[0], "dim mismatch vs legacy JD vector"
+
+    def test_max_query_similarity_shape_and_self(self):
+        intents = load_jd_intent_set()
+        scores = max_query_similarity(intents, intents)  # each row matches itself → ~1.0
+        assert scores.shape == (intents.shape[0],)
+        assert np.all(scores > 1.0 - 1e-4), f"Each intent should self-match ~1.0, got {scores}"
+
+    def test_multi_query_ranks_ml_over_marketing(self):
+        """The blended s_dense (max over queries) must still beat the keyword/marketing trap."""
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        intents = load_jd_intent_set()
+        ml_text = (
+            "Built production embedding-based retrieval and ranking; evaluated with NDCG/MRR; "
+            "shipped a recommendation system to millions of users at a product company."
+        )
+        marketing_text = (
+            "Led demand-generation campaigns, content marketing and SEO strategy; "
+            "managed a performance-marketing team."
+        )
+        embs = model.encode([ml_text, marketing_text], normalize_embeddings=True).astype(np.float32)
+        s = max_query_similarity(embs, intents)
+        assert s[0] > s[1], f"ML ({s[0]:.3f}) should beat marketing ({s[1]:.3f}) on multi-query dense"
