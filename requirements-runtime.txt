@@ -38,3 +38,8 @@ streamlit==1.58.0
 
 # --- Output / table display ---
 pandas==2.2.2
+
+# --- .env loading for the HF Space deploy script ---
+python-dotenv==1.0.1
+
+*.env

@@ -11,7 +11,9 @@
 #   4. A HF access token with write scope (https://huggingface.co/settings/tokens)
 #
 # Usage:
-#   1. Set HF_TOKEN env var (or run 'hf auth login' first)
+#   1. Create a .env file in the project root with your token:
+#        echo 'HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxx' > .env
+#      OR set HF_TOKEN as an env var before running this script
 #   2. Run: bash push_to_hf.sh
 #   3. After the Space is running, update submission_metadata.yaml
 #      with the sandbox_link
@@ -25,29 +27,38 @@ set -e
 # ---------------------------------------------------------------------------
 HF_USERNAME="${HF_USERNAME:-sandipanarnab}"          # your HF username
 SPACE_NAME="${SPACE_NAME:-redrob-ranker}"             # the Space repo name
-HF_TOKEN="${HF_TOKEN:-}"                              # set via env or run `hf auth login`
 
 # ---------------------------------------------------------------------------
-# Sanity checks
+# Load HF_TOKEN from .env (if it exists) or expect it in the environment
 # ---------------------------------------------------------------------------
-if [ "$HF_USERNAME" = "YOUR_HF_USERNAME" ]; then
-    echo "ERROR: set HF_USERNAME to your HF username."
-    echo "Edit push_to_hf.sh or pass as env var:"
-    echo "  HF_USERNAME=sandipanarnab bash push_to_hf.sh"
-    exit 1
+# We use Python's python-dotenv to load .env, then export HF_TOKEN to bash.
+# This way the rest of the script (and the hf CLI, and the git push URL)
+# all see the same token.
+
+if [ -z "${HF_TOKEN:-}" ] && [ -f .env ]; then
+    echo "Loading HF_TOKEN from .env (via python-dotenv)..."
+    HF_TOKEN=$(.\.venv\Scripts\python -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.environ.get('HF_TOKEN', ''))" 2>/dev/null)
+    if [ -n "$HF_TOKEN" ]; then
+        export HF_TOKEN
+        echo "  Loaded (length: ${#HF_TOKEN})"
+    else
+        echo "  .env exists but HF_TOKEN not set in it"
+    fi
 fi
 
-if [ -z "$HF_TOKEN" ] && ! command -v huggingface-cli &> /dev/null; then
-    echo "ERROR: set HF_TOKEN env var or install huggingface_hub CLI first."
-    echo "  pip install 'huggingface_hub[cli]'"
-    echo "  export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxx"
+if [ -z "${HF_TOKEN:-}" ]; then
+    echo "ERROR: HF_TOKEN is not set."
+    echo "Either:"
+    echo "  1. Create a .env file: echo 'HF_TOKEN=hf_xxx' > .env"
+    echo "  2. Or set the env var: export HF_TOKEN=hf_xxx"
+    echo "  3. Or pass inline: HF_TOKEN=hf_xxx bash push_to_hf.sh"
     exit 1
 fi
 
 # ---------------------------------------------------------------------------
 # Step 1: Install / verify huggingface_hub CLI
 # ---------------------------------------------------------------------------
-if ! command -v huggingface-cli &> /dev/null; then
+if ! command -v hf &> /dev/null && ! command -v huggingface-cli &> /dev/null; then
     echo "Installing huggingface_hub CLI..."
     pip install "huggingface_hub[cli]" >/dev/null
 fi
@@ -56,21 +67,15 @@ fi
 # Step 2: Log in to Hugging Face
 # ---------------------------------------------------------------------------
 echo "=== Step 1/5: Log in to Hugging Face ==="
-if [ -n "$HF_TOKEN" ]; then
-    # Non-interactive: use the token directly
-    hf auth login --token "$HF_TOKEN" --add-to-git-credential
-else
-    # Interactive: prompt for the token
-    hf auth login
-fi
+hf auth login --token "$HF_TOKEN" --add-to-git-credential 2>&1 | tail -3
 echo ""
 
 # ---------------------------------------------------------------------------
 # Step 3: Create the Space repo
 # ---------------------------------------------------------------------------
 echo "=== Step 2/5: Create the Space repo ==="
-echo "  $ hf repo create $SPACE_NAME --type space --space-sdk docker --exist-ok"
-hf repo create "$SPACE_NAME" --type space --space-sdk docker --exist-ok
+echo "  $ hf repo create $SPACE_NAME --repo-type space --space-sdk docker --exist-ok"
+hf repo create "$SPACE_NAME" --repo-type space --space-sdk docker --exist-ok 2>&1 | tail -3
 echo ""
 
 # ---------------------------------------------------------------------------
