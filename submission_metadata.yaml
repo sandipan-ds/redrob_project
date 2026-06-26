@@ -1,29 +1,22 @@
-# Redrob Hackathon — Submission Metadata
-# Based on: docs/reference_docs/submission_metadata_template.yaml
-#
-# GLM_CRITIC_v4 L3: these portal fields are required by spec §10.2 and
-# §10.5. Fill in before submitting. The sandbox link is mandatory.
-# A blank here will be flagged at Stage 1.
-
 # ============================================================================
 # Team identity
 # ============================================================================
-team_name: "redrob_project"  # TODO: replace with your registered participant ID
+team_name: "strider_1201"
 
 primary_contact:
-  name: "Sandipan Dutta"        # TODO: full name
-  email: "sandipanarnab@ghotmail.com"       # TODO: primary contact email
-  phone: "+91-8451858240"       # TODO: +91-XXXXXXXXXX format
+  name: "Sandipan Dutta"
+  email: "sandipanarnab@ghotmail.com"
+  phone: "+91-8451858240"
 
 team_members:
-  - name: "Sandipan Dutta"      # TODO: member 1 full name
-    email: "sandipanarnab@ghotmail.com"     # TODO: member 1 email
+  - name: "Sandipan Dutta"
+    email: "sandipanarnab@ghotmail.com"
     role: "ML Engineer"
 
 # ============================================================================
 # Code and reproducibility
 # ============================================================================
-github_repo: ""   # TODO: https://github.com/USERNAME/REPO (spec §10.2)
+github_repo: "https://github.com/sandipan-ds/redrob_project"
 
 sandbox_link: "https://huggingface.co/spaces/sandipanarnab/redrob-ranker"
 
