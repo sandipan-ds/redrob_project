@@ -84,8 +84,8 @@ echo ""
 # Step 3: Create the Space repo
 # ---------------------------------------------------------------------------
 echo "=== Step 2/5: Create the Space repo ==="
-echo "  $ hf repo create $SPACE_NAME --repo-type space --space-sdk docker --exist-ok"
-hf repo create "$SPACE_NAME" --repo-type space --space-sdk docker --exist-ok 2>&1 | tail -3
+echo "  $ hf repo create $HF_USERNAME/$SPACE_NAME --repo-type space --space-sdk docker --exist-ok"
+hf repo create "$HF_USERNAME/$SPACE_NAME" --repo-type space --space-sdk docker --exist-ok 2>&1 | tail -3
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -107,6 +107,10 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "=== Step 4/5: Push the code (HF will build the Docker image) ==="
 echo "  $ git push hf main:main"
+# Note: On Windows, `git push hf main:main` can fail with
+# "expected acknowledgments" due to a known Git for Windows bug.
+# If that happens, the workaround is to use Git Bash (not PowerShell)
+# or run the push from a no-spaces path.
 git push hf main:main 2>&1
 echo ""
 
