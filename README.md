@@ -1,3 +1,15 @@
+---
+title: Redrob Candidate Ranker
+emoji: "🧠"
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+short_description: Rank top 100 candidates for a Senior AI Engineer JD
+---
+
 # redrob_project — Redrob Candidate Ranker
 
 Rank the top 100 of a 100,000-candidate pool against a Senior AI Engineer JD.
