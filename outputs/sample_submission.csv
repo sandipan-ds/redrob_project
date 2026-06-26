@@ -10,10 +10,10 @@ CAND_0000020,8,0.139756,6.3 yrs experience — within the JD ideal band; Content
 CAND_0000048,9,0.135890,(9.7 yrs) — Android mobile development using Java and (more recently); one concern: limited production tenure.
 CAND_0000033,10,0.135400,"(8.6 yrs) — Business analyst at a consulting firm, working primarily; one concern: limited production tenure."
 CAND_0000030,11,0.134953,Strong role-fit: career describes Content writing and SEO strategy for a tech-focused; one concern: career is not centered on production ML at a product company.
-CAND_0000019,12,0.134811,"6.5 yrs experience — within the JD ideal band; Business analyst at a consulting firm, working primarily; one concern: limited production tenure."
-CAND_0000035,13,0.133737,4.3 yrs; career-fit on Full-stack web application development at a SaaS company.; one concern: career is not centered on production ML at a product company.
-CAND_0000046,14,0.132912,7.8 yrs experience — within the JD ideal band; Marketing leadership role at a B2B SaaS company.; one concern: limited production tenure.
-CAND_0000007,15,0.129301,(5.5 yrs) — Customer support team lead at a SaaS product.; one concern: limited production tenure.
+CAND_0000035,12,0.133737,Strong role-fit: career describes Full-stack web application development at a SaaS company.; one concern: career is not centered on production ML at a product company.
+CAND_0000046,13,0.132912,7.8 yrs experience — within the JD ideal band; Marketing leadership role at a B2B SaaS company.; one concern: limited production tenure.
+CAND_0000007,14,0.129301,5.5 yrs experience — within the JD ideal band; Customer support team lead at a SaaS product.; one concern: limited production tenure.
+CAND_0000019,15,0.128164,"(6.5 yrs) — Business analyst at a consulting firm, working primarily; one concern: limited production tenure."
 CAND_0000029,16,0.126567,(7.2 yrs) — Marketing leadership role at a B2B SaaS company.; one concern: limited production tenure.
 CAND_0000016,17,0.124586,(5.3 yrs) — Enterprise sales of cloud software solutions into the; one concern: limited production tenure.
 CAND_0000044,18,0.121386,5.7 yrs experience — within the JD ideal band; Java backend development at a large enterprise —; one concern: limited production tenure.
@@ -46,6 +46,6 @@ CAND_0000024,44,0.051427,"7.5 yrs; 7.5 yrs; response rate 78%, interview complet
 CAND_0000027,45,0.043838,"3.9 yrs; career shows Java backend development at a large enterprise —, but but career is not centered on production ML at a product company."
 CAND_0000008,46,0.033799,role-fit: Marketing leadership role at a B2B SaaS company.; but career is not centered on production ML at a product company.
 CAND_0000012,47,0.032041,role-fit: Senior accounting role at a mid-sized company —; but career is not centered on production ML at a product company.
-CAND_0000047,48,0.030966,role-fit: Operations management role at a logistics company. Owned; but career is not centered on production ML at a product company.
+CAND_0000047,48,0.029699,role-fit: Operations management role at a logistics company. Owned; but career is not centered on production ML at a product company.
 CAND_0000028,49,0.023488,role-fit: Brand design and creative direction at a consumer-products; but career is not centered on production ML at a product company.
 CAND_0000003,50,0.023349,"1.1 yrs; career shows Business analyst at a consulting firm, working primarily, but but career is not centered on production ML at a product company."
