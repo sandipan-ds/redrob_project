@@ -243,8 +243,13 @@ def _emit(text: str, whitelist: set[str]) -> str:
 # Dominant-feature detection
 # ---------------------------------------------------------------------------
 
-def _dominant_feature(breakdown: dict) -> str:
-    """Return the name of the fit component that contributed most to fit_score."""
+def _dominant_feature(breakdown: dict, cfg: dict | None = None) -> str:
+    """Return the name of the fit component that contributed most to fit_score.
+
+    Reads weights from `cfg["weights"]` (calibrated post-P5: 0.476/0.265/
+    0.159/0.05/0.05). Falls back to §2.5 priors (0.45/0.25/0.15/0.10/0.05)
+    when cfg is absent or the weights block is missing — GLM_CRITIC_v4 H1.
+    """
     weights_keys = {
         "s_role_fit": "role",
         "s_skill": "skill",
@@ -252,12 +257,25 @@ def _dominant_feature(breakdown: dict) -> str:
         "s_education": "edu",
         "s_location": "loc",
     }
-    # Multiply each component by the typical weight (0.45, 0.25, 0.15, 0.10, 0.05)
-    # to get the actual contribution. Use the breakdown values (already in [0,1]).
     approx_weights = {
         "s_role_fit": 0.45, "s_skill": 0.25, "s_exp_band": 0.15,
         "s_education": 0.10, "s_location": 0.05,
     }
+    if cfg is not None:
+        wcfg = cfg.get("weights", {}) or {}
+        # Only override when ALL five keys are present; otherwise fall back
+        # to the priors (defensive — partial config would mis-weight).
+        if all(
+            k in wcfg for k in
+            ("role_fit", "skill", "experience", "education", "location")
+        ):
+            approx_weights = {
+                "s_role_fit": float(wcfg["role_fit"]),
+                "s_skill": float(wcfg["skill"]),
+                "s_exp_band": float(wcfg["experience"]),
+                "s_education": float(wcfg["education"]),
+                "s_location": float(wcfg["location"]),
+            }
     best_key = max(
         weights_keys.keys(),
         key=lambda k: breakdown.get(k, 0.0) * approx_weights.get(k, 0.0),
@@ -441,20 +459,40 @@ _GAP_LIBRARY = {
 }
 
 
-def _gap_text(dominant_feature: str, rank_band: str) -> str:
+def _gap_text(dominant_feature: str, rank_band: str, breakdown: dict) -> str:
     """
-    Pick a gap clause keyed on the dominant feature. For 'top' band
-    the clause is OPTIONAL (a minor concern). For 'bottom' it's the
-    main message. The function returns a string already in the
-    '..., but X' or 'X' form, ready to slot into a template.
+    Pick a gap clause keyed on the dominant feature.
+
+    For 'top' band the clause is OPTIONAL — only emit it if there is
+    an ACTUAL gap (a penalty gate fired, or the dominant feature score
+    is notably low). GLM_CRITIC_v4 H2: the previous version always
+    fired a concern for top candidates, which is factually wrong for
+    candidates with unambiguous production-ML careers (e.g. CAND_0018499
+    with a RAG pipeline serving 50M+ queries).
+
+    For 'bottom' it's the main message — always emit.
     """
     import hashlib
     # Deterministic choice per candidate: hash(feat+band) mod len
     key = f"{dominant_feature}_{rank_band}"
     idx = int(hashlib.md5(key.encode()).hexdigest(), 16) % len(_GAP_LIBRARY.get(dominant_feature, _GAP_LIBRARY["general"]))
     gap = _GAP_LIBRARY.get(dominant_feature, _GAP_LIBRARY["general"])[idx]
+
     if rank_band == "top":
-        # Top band: a soft "minor concern" — append ", one concern: <gap>"
+        # Top band: only emit a concern if there IS a gap.
+        gate_reasons = breakdown.get("gate_reasons", []) or []
+        if not gate_reasons:
+            # No penalty gates fired → check if the dominant feature
+            # score is notably low. Thresholds are heuristic; the
+            # intent is "only complain about something real."
+            score_key = {
+                "role": "s_role_fit", "skill": "s_skill", "exp": "s_exp_band",
+                "edu": "s_education", "loc": "s_location",
+            }.get(dominant_feature, "s_role_fit")
+            dominant_score = float(breakdown.get(score_key, 1.0))
+            # If the dominant feature is strong, no concern.
+            if dominant_score >= 0.55:
+                return ""  # no gap → no concern clause
         return f"; one concern: {gap}"
     return f"but {gap}"
 
@@ -491,7 +529,7 @@ def generate_reasoning(
     if top_n <= 0:
         top_n = 100
     band = _rank_band(rank, top_n)
-    feat = _dominant_feature(breakdown)
+    feat = _dominant_feature(breakdown, cfg)
 
     # 2) Extract fillers.
     yoe = _yoe(candidate)
@@ -508,8 +546,10 @@ def generate_reasoning(
     idx = int(hashlib.md5(f"{rank}_{feat}".encode()).hexdigest(), 16) % len(templates)
     tmpl = templates[idx]
 
-    # 4) Build the gap clause and assemble.
-    gap_text = _gap_text(feat, band)
+    # 4) Build the gap clause and assemble (GLM_CRITIC_v4 H2: only emit
+    # a concern for top candidates when there is an actual gap — penalty
+    # gate fired, or dominant feature score is notably low).
+    gap_text = _gap_text(feat, band, breakdown)
     # Common placeholder substitutes
     subs = {
         "yoe": yoe,

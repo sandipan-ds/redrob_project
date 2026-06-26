@@ -1,3 +1,9 @@
+# Reference date for time-relative features (recency, no_recent_code gate).
+# Format: YYYY-MM-DD. If unset, falls back to date.today().
+# Set this to the date the ranking should be pegged to so reproductions
+# are deterministic (EXECUTION_PLAN §2.0.c). The P8 run date is 2026-06-21.
+reference_date: "2026-06-21"
+
 weights:
   role_fit: 0.4764705235294765
   skill: 0.2647057352942647

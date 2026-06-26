@@ -74,4 +74,4 @@ ENTRYPOINT ["python", "-m", "src.rank"]
 CMD ["--candidates", "/app/data/samples/sample_candidates.json", \
      "--cache",      "/app/artifacts/sample", \
      "--out",        "/app/outputs/sample_submission.csv", \
-     "--top-n",      "100"]
+      "--top-n",      "50"]

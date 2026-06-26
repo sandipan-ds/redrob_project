@@ -40,6 +40,22 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _get_reference_date(cfg: dict[str, Any]) -> date:
+    """
+    Read `reference_date` (ISO date string) from cfg. Falls back to
+    `date.today()` when unset. The reference date pegs all
+    time-relative role-fit weights so reproductions are deterministic
+    (EXECUTION_PLAN §2.0.c, GLM_CRITIC_v4 C1).
+    """
+    ref = (cfg or {}).get("reference_date")
+    if ref:
+        try:
+            return date.fromisoformat(str(ref))
+        except (TypeError, ValueError):
+            pass
+    return date.today()
+
+
 # Broad production-evidence lexicon (mirrors src/disqualifiers.py but kept
 # independent so role_fit can be tuned separately). Word-boundary matching
 # via the same approach to prevent the keyword-absence trap (§2.5.c).
@@ -89,6 +105,7 @@ def s_role_fit(
     """
     rcfg = cfg.get("role_fit", {})
     min_desc_chars = int(rcfg.get("min_desc_chars", 40))
+    reference_date = _get_reference_date(cfg)
 
     # Concatenate all career descriptions for the lexical signal and the
     # thin-description check. Titles are NOT included.
@@ -111,7 +128,7 @@ def s_role_fit(
         # title prior as a soft prior.
         s_dense = 0.0
     else:
-        s_dense = _s_dense_pooled(career, embs, jd_intents, rcfg)
+        s_dense = _s_dense_pooled(career, embs, jd_intents, rcfg, reference_date)
 
     s_lex = _s_lex(desc_texts)
 
@@ -130,6 +147,7 @@ def _s_dense_pooled(
     embs: np.ndarray,
     jd_intents: np.ndarray,
     rcfg: dict,
+    reference_date: date,
 ) -> float:
     """
     Multi-query dense role signal.
@@ -157,7 +175,9 @@ def _s_dense_pooled(
     # w_d = duration_norm(d) × recency_decay(d) — ONE weight, not two stacked.
     weights = np.array(
         [
-            _per_description_weight(d, use_duration_weight, recency_half_life)
+            _per_description_weight(
+                d, use_duration_weight, recency_half_life, reference_date
+            )
             for d in career
         ],
         dtype=np.float64,
@@ -181,7 +201,10 @@ def _topk_mean_unweighted(per_desc_cos: np.ndarray, k: int) -> float:
 
 
 def _per_description_weight(
-    entry: dict, use_duration_weight: bool, recency_half_life_months: float
+    entry: dict,
+    use_duration_weight: bool,
+    recency_half_life_months: float,
+    reference_date: date,
 ) -> float:
     """
     §2.5.f / SYSTEM_DESIGN §4.1.1: ONE combined per-description weight.
@@ -189,7 +212,7 @@ def _per_description_weight(
       duration_norm = min(duration_months / 24, 1.0)
       recency_decay  = 0.5 ** (months_since_end / recency_half_life_months)
     """
-    recency = _recency_decay(entry, recency_half_life_months)
+    recency = _recency_decay(entry, recency_half_life_months, reference_date)
     if not use_duration_weight:
         return recency
     duration_months = max(0, int(entry.get("duration_months", 0) or 0))
@@ -197,25 +220,32 @@ def _per_description_weight(
     return duration_norm * recency
 
 
-def _recency_decay(entry: dict, half_life_months: float) -> float:
+def _recency_decay(
+    entry: dict, half_life_months: float, reference_date: date
+) -> float:
     """
     0.5 ** (months_since_end / half_life_months). 1.0 for the most-recent
     stint (is_current or end within the current month); decays to 0 over
     multiple half-lives.
+
+    `reference_date` pegs the "today" used for the months-since
+    computation so reproductions are deterministic.
     """
     if half_life_months <= 0:
         return 1.0
     end = entry.get("end_date")
     is_current = entry.get("is_current", False)
     if is_current or not end:
-        ref = date.today()
+        ref = reference_date
     else:
         try:
             ref = date.fromisoformat(end)
         except (TypeError, ValueError):
             return 0.5  # unparseable date → middling weight, not zero
-    today = date.today()
-    months_since = (today.year - ref.year) * 12 + (today.month - ref.month)
+    months_since = (
+        (reference_date.year - ref.year) * 12
+        + (reference_date.month - ref.month)
+    )
     if months_since < 0:
         months_since = 0  # future-dated end → treat as current
     return 0.5 ** (months_since / half_life_months)

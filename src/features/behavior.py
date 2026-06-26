@@ -39,6 +39,22 @@ logger = logging.getLogger(__name__)
 _SENTINEL_NUMERIC = -1.0
 
 
+def _get_reference_date(cfg: dict[str, Any]) -> date:
+    """
+    Read `reference_date` (ISO date string) from cfg. Falls back to
+    `date.today()` when unset. The reference date pegs all
+    time-relative behavior features so reproductions are deterministic
+    (EXECUTION_PLAN §2.0.c, GLM_CRITIC_v4 C1).
+    """
+    ref = (cfg or {}).get("reference_date")
+    if ref:
+        try:
+            return date.fromisoformat(str(ref))
+        except (TypeError, ValueError):
+            pass
+    return date.today()
+
+
 def m_behavior(
     signals: dict[str, Any] | None, cfg: dict[str, Any]
 ) -> float:
@@ -57,14 +73,18 @@ def m_behavior(
     min_m = float(bcfg.get("min_multiplier", 0.50))
     max_m = float(bcfg.get("max_multiplier", 1.10))
     neutral_base = float(bcfg.get("neutral_base", 0.85))
+    reference_date = _get_reference_date(cfg)
 
     if not signals:
         return _clamp(neutral_base, min_m, max_m)
 
     multiplier = neutral_base
 
-    # Recency from last_active_date (days since last activity).
-    multiplier += _recency_contribution(signals.get("last_active_date"), bcfg)
+    # Recency from last_active_date (days since last activity, pegged to
+    # the configured reference date for determinism).
+    multiplier += _recency_contribution(
+        signals.get("last_active_date"), bcfg, reference_date
+    )
 
     # recruiter_response_rate (0–1) — weighted contribution.
     multiplier += _weighted_signal(
@@ -108,14 +128,19 @@ def m_behavior(
 # Per-signal contributors (all sentinel-safe)
 # -----------------------------------------------------------------------------
 
-def _recency_contribution(last_active: Any, bcfg: dict) -> float:
+def _recency_contribution(
+    last_active: Any, bcfg: dict, reference_date: date
+) -> float:
     """
     Map days-since-active to a contribution. Below the very_active
     threshold → +0.1; between active and moderate → +0.05; stale →
     0; inactive → -0.1. These deltas are heuristic — the config
     thresholds (very_active_days, active_days, etc.) anchor the tiers.
+
+    `reference_date` pegs the "today" used for the days-since
+    computation so reproductions are deterministic.
     """
-    days = _days_since(last_active)
+    days = _days_since(last_active, reference_date)
     if days is None:
         return 0.0
     th = bcfg.get("recency_thresholds", {}) or {}
@@ -222,15 +247,14 @@ def _profile_completeness_modifier(value: Any) -> float:
 # Helpers
 # -----------------------------------------------------------------------------
 
-def _days_since(date_str: Any) -> int | None:
+def _days_since(date_str: Any, reference_date: date) -> int | None:
     if not date_str or not isinstance(date_str, str):
         return None
     try:
         d = date.fromisoformat(date_str)
     except (TypeError, ValueError):
         return None
-    today = date.today()
-    return (today - d).days
+    return (reference_date - d).days
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:

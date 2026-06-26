@@ -33,6 +33,23 @@ from src.honeypot import detect_honeypot
 
 logger = logging.getLogger(__name__)
 
+
+def _get_reference_date(cfg: dict[str, Any]) -> date:
+    """
+    Read `reference_date` (ISO date string) from cfg. Falls back to
+    `date.today()` when unset. The reference date pegs all
+    time-relative penalty-gate checks (no_recent_code) so
+    reproductions are deterministic (EXECUTION_PLAN §2.0.c,
+    GLM_CRITIC_v4 C1).
+    """
+    ref = (cfg or {}).get("reference_date")
+    if ref:
+        try:
+            return date.fromisoformat(str(ref))
+        except (TypeError, ValueError):
+            pass
+    return date.today()
+
 # -----------------------------------------------------------------------------
 # Lexicons (broad, to defeat the "keyword trap inverted" failure mode §2.5.c)
 # -----------------------------------------------------------------------------
@@ -115,6 +132,7 @@ def compute_penalty(
     """
     pcfg = cfg.get("penalties", {})
     p_scale = float(pcfg.get("p_scale", 1.0))
+    reference_date = _get_reference_date(cfg)
     reasons: list[str] = []
 
     # ---- honeypot: always full strength, never scaled ----
@@ -144,7 +162,7 @@ def compute_penalty(
         non_hp.append(("research_only", score * p_scale))
         reasons.append("research_only")
 
-    score = _eval_no_recent_code(candidate, pcfg)
+    score = _eval_no_recent_code(candidate, pcfg, reference_date)
     if score is not None:
         non_hp.append(("no_recent_code", score * p_scale))
         reasons.append("no_recent_code")
@@ -271,13 +289,15 @@ def _eval_research_only(
     return None
 
 
-def _eval_no_recent_code(candidate: dict, pcfg: dict) -> float | None:
+def _eval_no_recent_code(
+    candidate: dict, pcfg: dict, reference_date: date
+) -> float | None:
     """
     No ML-relevant career entry within `lookback_months` (default 18).
 
     An entry is "ML-relevant" if its description contains any production/
-    ML term. The lookback is from today (or from `end_date` of the
-    most-recent entry — approximate).
+    ML term. The lookback is from the configured `reference_date`
+    (pegged to the dataset's run date for determinism — GLM_CRITIC_v4 C1).
 
     The github_activity_score sentinel issue (§2.5.g) means we MUST lean
     on description text, not the github signal.
@@ -290,32 +310,28 @@ def _eval_no_recent_code(candidate: dict, pcfg: dict) -> float | None:
     if not career:
         return None  # no data → don't claim no-recent-code
 
-    # Reference date: today. (In practice rank.py is run at submission
-    # time; using `date.today()` keeps the test deterministic for a given
-    # run-day. For an even more stable approach, the lookback could be
-    # pegged to the max end_date in the data — but that requires loading
-    # all candidates, which rank.py does NOT do at this step.)
-    today = date.today()
-
     for entry in career:
         desc = entry.get("description") or ""
         if not _has_any_term(desc, PRODUCTION_LEXICON):
             continue  # not ML-relevant
         # ML-relevant: check the entry falls within the lookback window.
-        # Use end_date if present (and not is_current → use today),
+        # Use end_date if present (and not is_current → use reference_date),
         # else fall back to start_date as a lower bound.
         end = entry.get("end_date")
         start = entry.get("start_date")
         is_current = entry.get("is_current", False)
         if is_current or not end:
-            ref = today
+            ref = reference_date
         else:
             try:
                 ref = date.fromisoformat(end)
             except (TypeError, ValueError):
                 continue
-        # How recent? months between ref and today
-        months_since = (today.year - ref.year) * 12 + (today.month - ref.month)
+        # How recent? months between ref and the configured reference date
+        months_since = (
+            (reference_date.year - ref.year) * 12
+            + (reference_date.month - ref.month)
+        )
         if months_since <= lookback:
             return None  # found a recent ML stint → gate does NOT fire
 

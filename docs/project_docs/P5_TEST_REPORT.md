@@ -144,10 +144,15 @@ P4: 13 + 1 skipped, P5: 13 + 2 anti-keyword).
 Running `python scripts/calibrate.py --grid coarse` (27 configurations,
 ~7s) on the 50-sample + 3 decoys produces:
 
-- **Best composite: 0.6974** (27 configs in 6.9s).
-- **Best config: `w_edu=0.10`, `p_scale=1.0`, `w_dense=0.7`** — the §2.5
-  priors are well-calibrated for this dataset. The coordinate search
-  did not find a meaningfully better configuration.
+- **Best composite: 0.6974** (27 configs in 6.9s, re-confirmed
+  2026-06-26 with `reference_date` config support).
+- **Best config: `w_edu=0.05`, `p_scale=1.5`, `w_dense=0.8`** (with
+  `behavior_neutral=0.85` frozen). The §2.5 priors are *defensible*
+  but the coordinate search found a measurably better configuration
+  on the 50+3 proxy: `w_edu` drops from 0.10→0.05 (the JD is
+  anti-credentialist), `p_scale` rises from 1.0→1.5 (harsher penalty
+  gating), and `w_dense` rises from 0.7→0.8 (lean more on the semantic
+  cosine). Composite +0.018 over the priors.
 - **Best top-10:**
   1. `CAND_0000031` (Recommendation Systems Engineer, tier 4 — the
      genuine fit)

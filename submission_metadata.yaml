@@ -1,29 +1,35 @@
 # Redrob Hackathon — Submission Metadata
 # Based on: docs/reference_docs/submission_metadata_template.yaml
+#
+# GLM_CRITIC_v4 L3: these portal fields are required by spec §10.2 and
+# §10.5. Fill in before submitting. The sandbox link is mandatory.
+# A blank here will be flagged at Stage 1.
 
 # ============================================================================
 # Team identity
 # ============================================================================
-team_name: "redrob_project"
+team_name: "redrob_project"  # TODO: replace with your registered participant ID
 
 primary_contact:
-  name: ""
-  email: ""
-  phone: ""
+  name: ""        # TODO: full name
+  email: ""       # TODO: primary contact email
+  phone: ""       # TODO: +91-XXXXXXXXXX format
 
 team_members:
-  - name: ""
-    email: ""
+  - name: ""      # TODO: member 1 full name
+    email: ""     # TODO: member 1 email
     role: "ML Engineer"
 
 # ============================================================================
 # Code and reproducibility
 # ============================================================================
-github_repo: ""   # Fill in before submission
+github_repo: ""   # TODO: https://github.com/USERNAME/REPO (spec §10.2)
 
-sandbox_link: ""  # Fill in before submission (HF Spaces / Streamlit / Colab)
+sandbox_link: ""  # TODO: https://huggingface.co/spaces/USERNAME/redrob-ranker
+                  #   (or Streamlit Cloud / Replit / Colab / docker pull link)
+                  #   MANDATORY per spec §10.5 — flagged at Stage 1 if blank.
 
-reproduce_command: "docker build -t redrob-ranker . && docker run --rm --network none -v ${PWD}/data:/work/data -v ${PWD}/outputs:/work/outputs redrob-ranker python -m src.rank --candidates /work/data/candidates.jsonl --cache /work/artifacts --out /work/outputs/submission.csv"
+reproduce_command: "docker build -t redrob-ranker . && docker run --rm --network none -v ${PWD}/data:/work/data -v ${PWD}/artifacts:/work/artifacts -v ${PWD}/outputs:/work/outputs redrob-ranker python -m src.rank --candidates /work/data/originals/candidates.jsonl --cache /work/artifacts/full --out /work/outputs/submission.csv --top-n 100"
 
 # ============================================================================
 # Compute environment
@@ -63,8 +69,8 @@ methodology_summary: |
   experience band, education tier+CGPA, location) combined with a multiplicative
   behavioral-signal modifier and hard penalty gates (honeypot, consulting-only,
   research-only, domain-mismatch). Role-fit is the dominant signal to defeat the
-  keyword-stuffing trap. All LLM use is offline; runtime is vectorized NumPy/
-  sklearn over precomputed embeddings — well within 5 min / 16 GB CPU budget.
+  keyword-stuffing trap. All LLM use is offline; runtime is vectorized NumPy
+  over precomputed embeddings — well within 5 min / 16 GB CPU budget.
 
 # ============================================================================
 # Declarations

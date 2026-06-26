@@ -212,38 +212,6 @@ def rank(
     logger.info("Wrote %d rows to %s", len(top), out_path)
 
 
-def _generate_reasoning(
-    candidate: dict, breakdown: dict, rank: int | None, cfg: dict
-) -> str:
-    """
-    Wrapper for the P6 deterministic reasoning generator.
-
-    `rank` is not yet known at the time of the first call (we generate
-    reasoning per-candidate during the rerank, before sorting). The P6
-    generator uses rank to pick the rank band (top / mid / bottom). We
-    generate a neutral mid-band reasoning here and then re-generate
-    after sorting when the final rank is known. This avoids the cost
-    of a second pass while keeping the rank-band signal correct.
-    """
-    from src.reasoning import generate_reasoning as _gen
-    # Use rank=50 (mid band) as a neutral placeholder. The final
-    # reasoning is regenerated below after sorting.
-    placeholder_rank = rank if rank is not None else 50
-    return _gen(candidate, breakdown, placeholder_rank, cfg)
-
-
-def _minimal_reasoning(profile: dict, breakdown: dict) -> str:
-    """
-    Kept for backward compatibility / emergency fallback. The P6
-    generator is preferred; this is the trivial name-templated version
-    (rejected by the §6.5 "no name-templating" rule but acceptable
-    as a never-used fallback).
-    """
-    yoe = profile.get("years_of_experience", 0)
-    title = (profile.get("current_title") or "").strip()
-    return f"{title or 'Candidate'}, {yoe} yrs."
-
-
 def _write_csv(out_path: Path, rows: list[dict]) -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="") as fh:
