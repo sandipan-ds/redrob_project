@@ -25,9 +25,7 @@ team_members:
 # ============================================================================
 github_repo: ""   # TODO: https://github.com/USERNAME/REPO (spec §10.2)
 
-sandbox_link: ""  # TODO: https://huggingface.co/spaces/USERNAME/redrob-ranker
-                  #   (or Streamlit Cloud / Replit / Colab / docker pull link)
-                  #   MANDATORY per spec §10.5 — flagged at Stage 1 if blank.
+sandbox_link: "https://huggingface.co/spaces/sandipanarnab/redrob-ranker"
 
 reproduce_command: "docker build -t redrob-ranker . && docker run --rm --network none -v ${PWD}/data:/work/data -v ${PWD}/artifacts:/work/artifacts -v ${PWD}/outputs:/work/outputs redrob-ranker python -m src.rank --candidates /work/data/originals/candidates.jsonl --cache /work/artifacts/full --out /work/outputs/submission.csv --top-n 100"
 
