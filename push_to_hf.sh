@@ -37,7 +37,17 @@ SPACE_NAME="${SPACE_NAME:-redrob-ranker}"             # the Space repo name
 
 if [ -z "${HF_TOKEN:-}" ] && [ -f .env ]; then
     echo "Loading HF_TOKEN from .env (via python-dotenv)..."
-    HF_TOKEN=$(.\.venv\Scripts\python -c "from dotenv import load_dotenv; import os; load_dotenv(); print(os.environ.get('HF_TOKEN', ''))" 2>/dev/null)
+    # Try a few Python interpreters in order. Suppress errors with
+    # "|| true" so a missing path doesn't exit (we have set -e).
+    HF_TOKEN=$(
+        {
+            .venv/Scripts/python.exe load_hf_token.py 2>/dev/null ||
+            .venv/Scripts/python    load_hf_token.py 2>/dev/null ||
+            venv/bin/python          load_hf_token.py 2>/dev/null ||
+            python3                  load_hf_token.py 2>/dev/null ||
+            python                   load_hf_token.py 2>/dev/null
+        } | tail -n 1
+    )
     if [ -n "$HF_TOKEN" ]; then
         export HF_TOKEN
         echo "  Loaded (length: ${#HF_TOKEN})"
