@@ -161,6 +161,24 @@ guard for the lower band" — the threshold is a calibration target, not
 a spec requirement, and the official scoring metric is the composite
 (where the calibrated config wins by +0.018).
 
+> **REVISED (commit `e53c393`, 2026-06-26):** The calibrated weights
+> applied here (role_fit=0.4765, skill=0.2647, experience=0.1588,
+> education=0.05, location=0.05) were correctly used by the ranker
+> (which reads from `cfg["weights"]`), but `src/reasoning.py` had a
+> stale hardcoded copy of the §2.5 priors (0.45/0.25/0.15/0.10/0.05)
+> that the calibration never reached. This was a **sibling-sync
+> failure** flagged as GLM_CRITIC_v4 finding H1 and fixed in commit
+> `e53c393`: `_dominant_feature` now reads from `cfg["weights"]` with
+> a defensive fallback. The fix changed the **reasoning text** for
+> 16 of the 100 top-ranked candidates (the false "one concern:
+> career is not centered on production ML" clause was removed from
+> top-band candidates where no penalty gate fired and the dominant
+> feature score was ≥ 0.55). The **ranking and scores were
+> unchanged** (0 of 100 ranks shifted) because the dominant
+> feature was the same for all top candidates under both weight
+> sets. See `docs/project_explanation/WEIGHT_REVISIONS.md` for the
+> full weight derivation story.
+
 ### Two-stage image layout (no precompute at runtime)
 The Dockerfile's default `ENTRYPOINT` runs `src.rank` (the constrained
 step), not precompute. The precompute pass is offline and not part of

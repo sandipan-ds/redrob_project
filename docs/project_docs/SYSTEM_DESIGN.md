@@ -77,6 +77,14 @@ All coefficients live in `config/scoring_config.yaml` (human-readable, version-c
 hidden ground truth). Current priors (calibrated in P5): `role 0.45 · skill 0.25 · exp 0.15 · edu 0.10 ·
 loc 0.05` (sum = 1.0).
 
+> **REVISED (commit `e53c393`, 2026-06-26):** The calibrated values
+> applied in P7 are `role 0.4765 · skill 0.2647 · exp 0.1588 · edu 0.05 ·
+> loc 0.05` (sum = 1.0). The P5 calibration lowered `w_edu` from
+> 0.10→0.05 and redistributed the freed 0.05 to role/skill/exp keeping
+> the 9:5:3 ratio. This paragraph still shows the §2.5 priors; see
+> `docs/project_explanation/WEIGHT_REVISIONS.md` for the full weight
+> derivation story.
+
 | Component | Source field(s) | How it's computed | Notes |
 |---|---|---|---|
 | **`s_role_fit`** (dominant) | `career_history[].description` | **Blended:** `w_dense·s_dense + w_lex·s_lex`, top-K-mean pooled, recency-weighted | `s_dense` = max cosine over a **multi-query** JD-intent set; `s_lex` = production-evidence lexical match. See §4.1. Titles ignored (except thin-desc fallback). |

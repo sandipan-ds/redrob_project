@@ -11,13 +11,13 @@
 team_name: "redrob_project"  # TODO: replace with your registered participant ID
 
 primary_contact:
-  name: ""        # TODO: full name
-  email: ""       # TODO: primary contact email
-  phone: ""       # TODO: +91-XXXXXXXXXX format
+  name: "Sandipan Dutta"        # TODO: full name
+  email: "sandipanarnab@ghotmail.com"       # TODO: primary contact email
+  phone: "+91-8451858240"       # TODO: +91-XXXXXXXXXX format
 
 team_members:
-  - name: ""      # TODO: member 1 full name
-    email: ""     # TODO: member 1 email
+  - name: "Sandipan Dutta"      # TODO: member 1 full name
+    email: "sandipanarnab@ghotmail.com"     # TODO: member 1 email
     role: "ML Engineer"
 
 # ============================================================================
@@ -52,12 +52,13 @@ compute:
 # AI tools declaration
 # ============================================================================
 ai_tools_used:
-  - "Claude"
+  - "Claude Opus 4.8 + GLM 5.2"
   - "GitLab Duo Chat"
+  - "Minimax M3"
 
 ai_usage_summary: |
-  Used Claude / GitLab Duo Chat for architecture discussion, code review, and
-  config design. No candidate data was fed to any hosted LLM. All LLM use is
+  Used Claude Opus 4.8 (only limited use) and GLM 5.2 for brainstorming. 
+  Use Minimax M3 and Claude Sonnet 4.6 for coding (limited use). No candidate data was fed to any hosted LLM. All LLM use is
   offline/dev-time only; ranking is fully deterministic and CPU-only.
 
 # ============================================================================
