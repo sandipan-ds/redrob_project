@@ -24,12 +24,19 @@ py -3.11 -m venv .venv
 ### Full 100K pool (offline precompute, then run)
 
 ```bash
-# Precompute (uncapped per submission_spec §10.3; ~60 min on a 100K pool):
-python -m src.precompute --candidates data/originals/candidates.jsonl --output artifacts/
+# Precompute (uncapped per submission_spec §10.3; ~70 min on a 100K pool):
+python -m src.precompute --candidates data/originals/candidates.jsonl --output artifacts/full
 
-# Rank the top 100 (≤ 5 min on CPU; the hard constraint):
-python -m src.rank --candidates data/originals/candidates.jsonl --cache artifacts/ --out outputs/submission.csv --top-n 100
+# Rank the top 100 (≤ 5 min on CPU; measured 20.3s on full 100K):
+python -m src.rank --candidates data/originals/candidates.jsonl --cache artifacts/full --out outputs/submission.csv --top-n 100
 ```
+
+> **Note:** `artifacts/full/` (the production precompute, ~440 MB) is
+> **gitignored**. It exceeds GitHub's 100 MB file size limit. The
+> precompute is reproducible from `data/originals/candidates.jsonl` in
+> ~70 min on 8-core CPU. The vendored `artifacts/sample/` (50-sample
+> precompute, ~225 KB) is sufficient for dev, tests, and the HF Space
+> sandbox.
 
 ### Docker (offline, sandbox-compatible)
 

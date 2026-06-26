@@ -1,0 +1,40 @@
+# Redrob Candidate Ranker — runtime dependencies (DOCKER ONLY, MINIMAL)
+#
+# The absolute minimum to run the Streamlit app at HF Spaces:
+#   - Load JD-intent set (4x384 numpy)
+#   - Load precomputed career embeddings (artifacts/sample/)
+#   - Encode descriptions (sentence-transformers, vendored model)
+#   - Compute features (role_fit, skills, experience, education, location, behavior)
+#   - Score, sort, generate reasoning
+#   - Serve UI (streamlit)
+#
+# We do NOT need: transformers (not used by src/), scikit-learn (not used by
+# src/ at runtime), scipy (not used by src/ at runtime), pyarrow (pulled by
+# streamlit but not used). The precompute step (which needs these) is dev-time.
+#
+# For dev/CI (where you also need the precompute path + tests), use
+# `requirements.txt` instead. The Dockerfile copies `requirements-runtime.txt`
+# so the production image stays lean.
+#
+# REQUIRES Python 3.11.x (verified on 3.11.9). These pins have prebuilt
+# wheels for 3.11 and install in seconds.
+
+# --- Core data ---
+numpy==1.26.4
+
+# --- Embedding model + tokenizer (CPU build) ---
+# sentence-transformers needs torch + tokenizers. We pin the CPU-only
+# torch wheel from pytorch.org to avoid pulling the ~1 GB CUDA build.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.1+cpu
+tokenizers==0.19.1
+sentence-transformers==3.0.1
+
+# --- Config ---
+pyyaml==6.0.1
+
+# --- Web UI (Hugging Face Space — Streamlit on port 7860) ---
+streamlit==1.58.0
+
+# --- Output / table display ---
+pandas==2.2.2

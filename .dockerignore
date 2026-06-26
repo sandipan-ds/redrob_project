@@ -1,15 +1,18 @@
-# .dockerignore — keep the build context small and exclude non-runtime assets.
+# .dockerignore — keep the build context small.
 #
-# The image only needs: src/, config/, models/, artifacts/, requirements.txt, README.md.
-# Everything else (data, dev caches, tests, CI, original candidates, etc.) is excluded.
+# The image only needs: src/, config/, models/all-MiniLM-L6-v2/,
+# artifacts/sample/, data/samples/, app.py, requirements.txt, README.md.
+# Everything else is dev/test/docs and should be excluded.
 
-# Dev caches
+# --- Dev caches ---
 .git/
 .gitignore
 .gitattributes
 __pycache__/
 *.pyc
 *.pyo
+.pyd
+.Python
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -17,45 +20,60 @@ __pycache__/
 htmlcov/
 *.egg-info/
 
-# Virtualenvs
+# --- Virtualenvs ---
 .venv/
 venv/
 env/
 
-# IDE
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+desktop.ini
 .idea/
 .vscode/
 *.swp
-.DS_Store
-Thumbs.db
+*.swo
 
-# Data — never bake into the image; mount at runtime
+# --- Test artifacts ---
+tests/
+pytest.ini
+.coverage
+htmlcov/
+
+# --- Docs (not needed at runtime) ---
+docs/
+*.md
+!README.md
+AGENTS.md
+
+# --- Data: only the sample is in the image; originals are gitignored ---
 data/originals/
 data/originals.zip
 data/originals.tar.gz
+notebooks/
 
-# Outputs
+# --- Outputs ---
 outputs/
 *.csv
 !data/samples/sample_candidates.json
 
-# Tests — not needed at runtime
-tests/
+# --- Production precompute (~440 MB, regenerated locally) ---
+artifacts/full/
 
-# CI / docs scaffolding
-.github/
-docs/agent_logs/
-docs/agent_session_*.md
-docs/drafts/
-docs/reference_docs/validate_submission.py.bak
+# --- Dev scripts (not needed at runtime) ---
+scripts/
+push_to_hf.sh
+smoke_test_app.py
+docker_build.log
+*.err
+*.log
 
-# Repo metadata
-LICENSE
-*.md
-!README.md
-
-# Build artifacts
+# --- Build artifacts ---
 dist/
 build/
 *.tar
 *.zip
+
+# --- CI ---
+.github/
+.gitlab-ci.yml
