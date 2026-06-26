@@ -73,6 +73,7 @@ COPY models/ /app/models/
 COPY artifacts/ /app/artifacts/
 COPY data/ /app/data/
 COPY app.py /app/app.py
+COPY .streamlit/ /app/.streamlit/
 
 # Make src.* importable.
 ENV PYTHONPATH=/app
@@ -115,5 +116,6 @@ ENTRYPOINT ["streamlit", "run", "app.py", \
             "--server.port=7860", \
             "--server.address=0.0.0.0", \
             "--server.headless=true", \
+            "--server.maxUploadSize=1024", \
             "--browser.gatherUsageStats=false"]
 CMD []

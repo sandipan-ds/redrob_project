@@ -1,0 +1,21 @@
+# Streamlit config for the Redrob Candidate Ranker app.
+#
+# This config is read by `streamlit run app.py` (no CLI flags needed).
+# Reference: https://docs.streamlit.io/library/advanced-features/configuration
+
+[server]
+# HF Spaces standard port
+port = 7860
+# Listen on all interfaces (required for Docker / HF Spaces)
+address = "0.0.0.0"
+# Required for Docker (no browser auto-open in headless mode)
+headless = true
+# Max upload size in MB. Default is 200 MB; we raise to 1 GB so the
+# 100K production pool (~465 MB JSONL) can be uploaded for testing.
+# The spec §10.5 sandbox expects ≤100 candidates which is well
+# under 1 MB — this is just a safety margin.
+maxUploadSize = 1024
+
+[browser]
+# Don't phone home with usage stats
+gatherUsageStats = false
